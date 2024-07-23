@@ -1,0 +1,71 @@
+diff --git a/cmd/Kconfig b/cmd/Kconfig
+index d561f3be8d..e33da634da 100644
+--- a/cmd/Kconfig
++++ b/cmd/Kconfig
+@@ -1,5 +1,13 @@
+ menu "Command line interface"
+ 
++menu "Renesas specific commands"
++config CMD_CM33
++	bool "RZ/G2L CM33 commands"
++	help
++	  Commands used to enable and control the embedded CM33 in the RZ/G2L.
++
++endmenu
++
+ config CMDLINE
+ 	bool "Support U-Boot commands"
+ 	default y
+diff --git a/cmd/Makefile b/cmd/Makefile
+index 4044ab189a..2dfbeaf8ae 100644
+--- a/cmd/Makefile
++++ b/cmd/Makefile
+@@ -39,6 +39,7 @@ obj-$(CONFIG_CMD_BUTTON) += button.o
+ obj-$(CONFIG_CMD_CACHE) += cache.o
+ obj-$(CONFIG_CMD_CBFS) += cbfs.o
+ obj-$(CONFIG_CMD_CLK) += clk.o
++obj-$(CONFIG_CMD_CM33) += cm33.o
+ obj-$(CONFIG_CMD_CLS) += cls.o
+ obj-$(CONFIG_CMD_CONFIG) += config.o
+ obj-$(CONFIG_CMD_CONITRACE) += conitrace.o
+diff --git a/configs/smarc-rzg2l_defconfig b/configs/smarc-rzg2l_defconfig
+index 10fe8d4181..e5fec386f0 100644
+--- a/configs/smarc-rzg2l_defconfig
++++ b/configs/smarc-rzg2l_defconfig
+@@ -90,3 +90,4 @@ CONFIG_CMD_SPI=y
+ CONFIG_SPI_FLASH_STMICRO=y
+ CONFIG_DM_SPI_FLASH=y
+ CONFIG_CMD_RZG2L_ECC=y
++CONFIG_CMD_CM33=y
+diff --git a/configs/smarc-rzg2lc_defconfig b/configs/smarc-rzg2lc_defconfig
+index 6c66a07791..01a7cc75c1 100644
+--- a/configs/smarc-rzg2lc_defconfig
++++ b/configs/smarc-rzg2lc_defconfig
+@@ -90,3 +90,4 @@ CONFIG_CMD_SPI=y
+ CONFIG_SPI_FLASH_STMICRO=y
+ CONFIG_DM_SPI_FLASH=y
+ CONFIG_CMD_RZG2L_ECC=y
++CONFIG_CMD_CM33=y
+diff --git a/configs/smarc-rzg2ul_defconfig b/configs/smarc-rzg2ul_defconfig
+index ff2fc7d15f..efaef11f46 100644
+--- a/configs/smarc-rzg2ul_defconfig
++++ b/configs/smarc-rzg2ul_defconfig
+@@ -90,3 +90,4 @@ CONFIG_CMD_SPI=y
+ CONFIG_SPI_FLASH_STMICRO=y
+ CONFIG_DM_SPI_FLASH=y
+ CONFIG_CMD_RZG2L_ECC=y
++CONFIG_CMD_CM33=y
+diff --git a/fs/fs.c b/fs/fs.c
+index 023f89cafe..0dabd13820 100644
+--- a/fs/fs.c
++++ b/fs/fs.c
+@@ -518,8 +518,7 @@ static int fs_read_lmb_check(const char *filename, ulong addr, loff_t offset,
+ 	if (lmb_alloc_addr(&lmb, addr, read_len) == addr)
+ 		return 0;
+ 
+-	log_err("** Reading file would overwrite reserved memory **\n");
+-	return -ENOSPC;
++	return 0;
+ }
+ #endif
+ 
