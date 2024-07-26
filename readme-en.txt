@@ -7,12 +7,20 @@ any bug, please contact Renesas window person.
 
 Features:
  - Two ports are supported: SCI0(P40_0 & P40_1, 1.8v) + SCIF2(P48_0 & P48_1, 3.3v, inside PMOD1). SCI0 signals are not exported originally.
- - SCI0 can support the baudrate up to 1Mbps，8bit or 9bit data format, no parity support.
- - SCIF2 can support the baudrate up to 10Mbps，8bit data format only, no parity support.
+ - SCI0 can support the baudrate up to 1Mbps，8bit or 9bit data format, no parity support, 1 stop bit.
+ - SCIF2 can support the baudrate up to 10Mbps，8bit data format only, no parity support, 1 stop bit.
  - For supported baudrates, please refer to the 'enum vsci_br' definition inside file sh-vsci.h. This enum definition is used by kernel virtual 
    UART driver and CM33 firmware. Linux UART application should not use it.
 
 Note:
+ - Customer can choose the ports configurations based on their own hardware. Linux kernel side needs to be changed only(refer to this sample):
+   - SCI x1 + SCIF x1
+   - SCI x1 + SCI x1
+   - SCIF x1 + SCIF x1
+   - SCI x1
+   - SCIF x1
+   (SCI = SCI0 ~ SCI1, SCIF = SCIF0 ~ SCIF4)
+ - RZ/G2LC|UL MPUs based CIP Linux kernel can also refer to this sample to implement virtual UART soltion.
  - This solution has NO relation to the OpenAMP solution. Customer can reduce the default 128MB reserved DDR memory to 2MB, refer to wiki:
    https://renesas.info/wiki/RZ-G/RZ-G2_BSP_MemoryMap, section 'Reduce reserved area for RZ/G2L SMARC board'.
  - Due to the lack of support of 9bit UART data format in Linux kernel and GLibC, if customer wants to support 9bit data on SCI0 port please pass
@@ -36,6 +44,9 @@ Note:
     MHU resource IRQ 75 found, name = rsp1-core0
     MHU resource IRQ 76 found, name = msg5-core1
     MHU resource IRQ 77 found, name = rsp3=core1
+    MHU REG base = ..., size = 0x1000
+	MHU SHM base = ..., size = 0x4000
+	MHU driver loaded
     ... ...
     soc:serial@0000: ttySC1 at MMIO 0x20100 (irq = 0, base_baud = 0) is a vsci
     soc:serial@0002: ttySC3 at MMIO 0x20118 (irq = 0, base_baud = 0) is a vscif
@@ -64,19 +75,27 @@ linux/source：
   copy all files to kernel/drivers/tty/serial/
 linux：
   rzg2l-vlp306-vuart-vXXX.diff：VLP3.0.6 CIP41 kernel patch
-    - First run 'make defconfig' to generate base configuration for your kernel.
+    - First run kernel 'make defconfig'.
       After applying this patch, please run kernel menuconfig and make sure following items are selected(*)：
         Device Drivers > Character devices > Serial drivers > Message Handling Unit support
         Device Drivers > Character devices > Serial drivers > SuperH SCI(F) serial port support
-      Build the kernel to generate updated kernel and device tree images.
-    - This patch should be OK for other RZ/G2L Linux kernel based on VLP Linux kernel.
+	  Build kernel and dtb to generate updated kernel and device tress Images.
+    - This patch should be OK for other RZ/G2L Linux kernel based on VLP CIP Linux kernel.
 u-boot：
   u-boot.diff：u-boot patch for cm33 command support
   cm33/cm33.c：source file for cm33 command support(copy cm33.c to u-boot_src/cmd/)
 
 ------ HISTORY ------
+2024.07.26
+Add support for 6.25Mbps and 1.5625Mbps baudrate(Error rate = 0)
+Modified 1.5Mbps baudrate setting
+Add Error-Rete information of each baudrate to the sh-vsci.h
+VSCI device number depends on the definition of MHU device node, not the macro
+RX/TX/CMD MHU channels are defined in MHU device node
+Other code optimization
+
 2024.06.26
-Fix the issue of very long data package receiving. Data package length is unlimted now.
+Fix the issue of very long data package receiving. Data package length is unlimted now
 
 2024.06.25
 Code optimization

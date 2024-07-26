@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- *  Virtual SCI/SCIF device support.  (SCI with no FIFO / with FIFO)
+ *	Renesas RZ/G2Lx MPU Virtual SCI/SCIF device driver.
  *
- *  Copyright (C) 2024 Gary
+ *	Copyright (C) 2024 Gary Yin
  */
 #undef DEBUG
 
@@ -47,8 +47,6 @@
 #include "mhu.h"
 
 
-static int ref_count = 0;
-
 uint32_t vsci_baud_enc(int baud)
 {
 	switch(baud) {
@@ -73,13 +71,8 @@ struct vsci_device *vsci_alloc_device(struct device *devp, void *sciport, int po
 	struct device *dev = (struct device *)devp;
 	struct shared_mem_info *smi;
 	struct mhu_port *mp;
-	size_t va, pa;
+	size_t va, pa, offset;
 	uint32_t rtos_base;
-
-	if(ref_count >= VSCI_DEV_CNT) {
-		dev_err(dev, "ref_count = %d, no more VSCI device to alloc\n", ref_count);
-		goto exit0;
-	}
 
 	vd = (struct vsci_device *)kzalloc(sizeof(struct vsci_device), GFP_KERNEL);
 
@@ -124,13 +117,13 @@ struct vsci_device *vsci_alloc_device(struct device *devp, void *sciport, int po
 	vd->vc = &smi->vc[mp->port];
 
 	/*
-		install RX/TX buffer pointers(Linux, RTOS)
-		make sure the Rx/Tx buffer is 64-byte align
+		install RX/TX circ buffer pointers(Linux, RTOS)
 	*/
-	va += sizeof(struct shared_mem_info);
-	rtos_base += sizeof(struct shared_mem_info);
-	va = (va - 1 + 64) & ~63;
-	rtos_base = (rtos_base - 1 + 64) & ~63;
+	offset = offsetof(struct shared_mem_info, circ_buffer);
+
+	va += offset;
+	rtos_base += (uint32_t)offset;
+
 	vd->vc->bcore.rbuf = (uint64_t)va + (mp->port * VSCI_BUF_SIZE * 2);
 	vd->vc->bcore.tbuf = vd->vc->bcore.rbuf + VSCI_BUF_SIZE;
 
@@ -140,7 +133,6 @@ struct vsci_device *vsci_alloc_device(struct device *devp, void *sciport, int po
 	if(-1 == mhu_request_irq(&vd->mp, rxfn, txfn))
 		goto exit2;
 
-	vd->device = ref_count++;
 	vd->devname = vscin;
 	vd->platdev = devp;
 	vd->sciport = sciport;
@@ -159,20 +151,12 @@ exit0:
 
 void vsci_free_device(struct vsci_device *vd)
 {
-	struct device *dev = vd->platdev;
 	struct mhu_port *mp = (struct mhu_port *)vd->mp;
-
-	if((ref_count - 1)< 0) {
-		dev_err(dev, "ref_count = %d, invalid VSCI device to free\n", ref_count);
-		return;
-	}
 
 	mhu_free_irq(mp);
 
 	mhu_free_port(mp);
 
 	kfree(vd);
-
-	ref_count--;
 }
 

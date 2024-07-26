@@ -1,21 +1,25 @@
 diff --git a/arch/arm64/boot/dts/renesas/r9a07g044.dtsi b/arch/arm64/boot/dts/renesas/r9a07g044.dtsi
-index d29e905e1e6e..1ecdb37181d5 100644
+index d29e905e1e6e..008060629b67 100644
 --- a/arch/arm64/boot/dts/renesas/r9a07g044.dtsi
 +++ b/arch/arm64/boot/dts/renesas/r9a07g044.dtsi
-@@ -534,6 +534,40 @@ sci1: serial@1004d400 {
+@@ -534,6 +534,44 @@ sci1: serial@1004d400 {
  			status = "disabled";
  		};
  
 +		mhu: mhu@10400000 {
 +			compatible = "renesas,mhu-r9a07g044";
 +				reg = <0 0x10400000 0 0x1000>, /* MHU reg */
-+				<0 0x00020000 0 0x4000>; /* Shared memory */
++				      <0 0x00020000 0 0x4000>; /* Shared memory of Linux side */
 +			interrupts = <GIC_SPI 72 IRQ_TYPE_LEVEL_HIGH>,/* CH4 MSG, M33->CORE0 */
-+				<GIC_SPI 75 IRQ_TYPE_LEVEL_HIGH>,/* CH1 RSP, M33->CORE0 */
-+				<GIC_SPI 73 IRQ_TYPE_LEVEL_HIGH>,/* CH5 MSG, M33->CORE1 */
-+				<GIC_SPI 77 IRQ_TYPE_LEVEL_HIGH>;/* CH3 RSP, M33->CORE1 */
++				     <GIC_SPI 75 IRQ_TYPE_LEVEL_HIGH>,/* CH1 RSP, M33->CORE0 */
++				     <GIC_SPI 73 IRQ_TYPE_LEVEL_HIGH>,/* CH5 MSG, M33->CORE1 */
++				     <GIC_SPI 77 IRQ_TYPE_LEVEL_HIGH>;/* CH3 RSP, M33->CORE1 */
 +			interrupt-names = "msg4-core0", "rsp1-core0",
 +					"msg5-core1", "rsp3-core1";
++
++			/* RX INTR CH, TX INTR CH, CMD CH, Bit16 = 1 means RSP CH */
++			port-0 = <0x0004 0x10001 0x0001>;
++			port-1 = <0x0005 0x10003 0x0003>;
 +
 +			shm-rtos-base = <0x20020000>; /* Shared memory base of RTOS side */
 +
@@ -195,7 +199,7 @@ index caf167f0c10a..f3e0c460106a 100644
  obj-$(CONFIG_SERIAL_IMX) += imx.o
  obj-$(CONFIG_SERIAL_IMX_EARLYCON) += imx_earlycon.o
 diff --git a/drivers/tty/serial/sh-sci.c b/drivers/tty/serial/sh-sci.c
-index b5f306557654..68ba98894c22 100644
+index b5f306557654..605503df6d6c 100644
 --- a/drivers/tty/serial/sh-sci.c
 +++ b/drivers/tty/serial/sh-sci.c
 @@ -58,6 +58,9 @@
@@ -258,7 +262,7 @@ index b5f306557654..68ba98894c22 100644
  	return SCSCR_RIE | (to_sci_port(port)->cfg->scscr & SCSCR_REIE);
  }
  
-+static void vsci_receive(struct sci_port *sp, int bytes, int dri)
++static void vsci_receive(struct sci_port *sp, int bytes, int push)
 +{
 +	struct uart_port *port = &sp->port;
 +	struct tty_port *tport = &port->state->port;
@@ -285,7 +289,7 @@ index b5f306557654..68ba98894c22 100644
 +
 +	port->icount.rx += count;
 +
-+	if(dri)
++	if(push)
 +		tty_flip_buffer_push(tport);
 +}
 +
@@ -445,10 +449,10 @@ index b5f306557654..68ba98894c22 100644
 +	if(VSCIR_RX_RDY == opcode) {
 +		r.d = msg;
 +		//pr_info("#RXI %d\n", r.c.bytes);
-+		vsci_receive(sp, r.c.bytes, 1);
++		vsci_receive(sp, r.r.bytes, 1);
 +	} else if(VSCIR_RXD_RDY == opcode) {
 +		rd.d = msg;
-+		bytes = (rd.c.bytes & ((VSCI_BUF_SIZE / 2) - 1)) ? rd.c.bytes : 0; /* last byte may be half-buffer size align */
++		bytes = (rd.r.bytes & ((VSCI_BUF_SIZE / 2) - 1)) ? rd.r.bytes : 0; /* last byte may be half-buffer size align */
 +		//pr_info("#DRI %d\n", bytes);
 +		if(bytes)
 +			vsci_receive(sp, bytes, 1);
@@ -654,7 +658,15 @@ index b5f306557654..68ba98894c22 100644
  	res = request_mem_region(port->mapbase, sport->reg_size,
  				 dev_name(port->dev));
  	if (unlikely(res == NULL)) {
-@@ -3002,6 +3268,7 @@ static int sci_init_single(struct platform_device *dev,
+@@ -2996,12 +3262,15 @@ sci_probe_regmap(const struct plat_sci_port *cfg)
+ 	return &sci_port_params[regtype];
+ }
+ 
++static DEFINE_MUTEX(vsci_registration_lock);
++
+ static int sci_init_single(struct platform_device *dev,
+ 			   struct sci_port *sci_port, unsigned int index,
+ 			   const struct plat_sci_port *p, bool early)
  {
  	struct uart_port *port = &sci_port->port;
  	const struct resource *res;
@@ -662,12 +674,13 @@ index b5f306557654..68ba98894c22 100644
  	unsigned int i;
  	int ret;
  
-@@ -3012,6 +3279,28 @@ static int sci_init_single(struct platform_device *dev,
+@@ -3012,6 +3281,30 @@ static int sci_init_single(struct platform_device *dev,
  	port->line	= index;
  	port->has_sysrq = IS_ENABLED(CONFIG_SERIAL_SH_SCI_CONSOLE);
  
 +	if(sci_port->vi) {
 +
++		mutex_lock(&vsci_registration_lock);
 +		sci_port->vi->vd = vsci_alloc_device(
 +			&dev->dev,
 +			(void *)sci_port,
@@ -676,6 +689,7 @@ index b5f306557654..68ba98894c22 100644
 +			vsci_intr_cb_rx,
 +			vsci_intr_cb_tx
 +		);
++		mutex_unlock(&vsci_registration_lock);
 +
 +		if(NULL == sci_port->vi->vd)
 +			return -ENODEV;
@@ -691,19 +705,21 @@ index b5f306557654..68ba98894c22 100644
  	res = platform_get_resource(dev, IORESOURCE_MEM, 0);
  	if (res == NULL)
  		return -ENOMEM;
-@@ -3123,6 +3412,11 @@ static int sci_init_single(struct platform_device *dev,
+@@ -3123,6 +3416,13 @@ static int sci_init_single(struct platform_device *dev,
  
  static void sci_cleanup_single(struct sci_port *port)
  {
 +	if(port->vi) {
++		mutex_lock(&vsci_registration_lock);
 +		vsci_free_device(port->vi->vd);
++		mutex_unlock(&vsci_registration_lock);
 +		kfree(port->vi);
 +	}
 +
  	pm_runtime_disable(port->port.dev);
  }
  
-@@ -3351,6 +3645,12 @@ static const struct of_device_id of_sci_match[] = {
+@@ -3351,6 +3651,12 @@ static const struct of_device_id of_sci_match[] = {
  	}, {
  		.compatible = "renesas,sci",
  		.data = SCI_OF_DATA(PORT_SCI, SCIx_SCI_REGTYPE),
@@ -716,7 +732,7 @@ index b5f306557654..68ba98894c22 100644
  	}, {
  		/* Terminator */
  	},
-@@ -3421,6 +3721,24 @@ static struct plat_sci_port *sci_parse_dt(struct platform_device *pdev,
+@@ -3421,6 +3727,24 @@ static struct plat_sci_port *sci_parse_dt(struct platform_device *pdev,
  	sp->has_rtscts = of_property_read_bool(np, "uart-has-rtscts");
  	sp->rstc = rstc;
  
@@ -741,7 +757,7 @@ index b5f306557654..68ba98894c22 100644
  	return p;
  }
  
-@@ -3456,9 +3774,11 @@ static int sci_probe_single(struct platform_device *dev,
+@@ -3456,9 +3780,11 @@ static int sci_probe_single(struct platform_device *dev,
  	if (ret)
  		return ret;
  

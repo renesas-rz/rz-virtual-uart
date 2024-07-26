@@ -9,13 +9,7 @@
 	WITH THIS FILE(BOTH).
 ****************************************************************************/
 
-/*
-	For RZ/G2L|LC, MHU can support 2 CH VSCI device
-	For RZ/G2UL, MHU can support only 1CH VSCI device(Not tested yet)
-*/
-#define __MAX_DEV_NUM__		2
-
-#define VSCI_DEV_CNT		__MAX_DEV_NUM__
+#define VSCI_DEVICE_NUM_MAX		8 /* large enough for current MPU types */
 
 enum vsci_name {
 	DEV_VSCI0 = 0x01,
@@ -68,15 +62,15 @@ struct vsci_circ {
 };
 
 struct shared_mem_info {
-	uint32_t msg_buf[64]; /* Linux-RTOS MSG memory */
-	struct vsci_circ vc[VSCI_DEV_CNT]; /* VSCI device circ buffer */
+	uint32_t msg_buf[VSCI_DEVICE_NUM_MAX * 2]; /* Linux-RTOS MSG memory */
+	struct vsci_circ vc[VSCI_DEVICE_NUM_MAX]; /* VSCI device circ buffer pointers */
+	uint8_t reserved[16]; /* gap */
+	uint32_t circ_buffer[];
 };
 
 #ifdef __linux__
 struct vsci_device {
 	int enabled; /* 0: disabled, not used. 1: open, being used */
-
-	int device; /* VSCI device index, 0, 1, 2... */
 
 	int devname; /* vsci device name, DEV_VSCIxxx */
 
@@ -101,7 +95,7 @@ enum vsci_cmd_set {
 	/*
 		--- Linux -> RTOS command list ---
 	*/
-	VSCIC_OPEN = 0x01,
+	VSCIC_OPEN = 1,
 	VSCIC_CONF,
 	VSCIC_START,
 	VSCIC_TXD_RDY,
@@ -117,31 +111,34 @@ enum vsci_cmd_set {
 };
 
 enum vsci_br {
-	BR9600 = 1,
-	BR19200,
-	BR38400,
-	BR57600,
-	BR115200,
-	BR230400,
-	BR460800,
-	BR500000,
-	BR576000,
-	BR921600,
-	BR1000000,
-	BR1152000,
-	BR1500000,
-	BR2000000,
-	BR2500000,
-	BR3000000,
-	BR3125000,
-	BR3500000,
-	BR4000000,
-	BR5000000,
-	BR6000000,
-	BR7000000,
-	BR8000000,
-	BR9000000,
-	BR10000000
+	/* baudrate, error rate */
+	BR9600 = 1,		/* 0.0194995% */
+	BR19200,		/* 0.0194995% */
+	BR38400,		/* 0.0194995% */
+	BR57600,		/* 0.00335015% */
+	BR115200,		/* 0.00335015% */
+	BR230400,		/* 0.00335015% */
+	BR460800,		/* 0.00335015% */
+	BR500000,		/* 0.0976562% */
+	BR576000,		/* 0.0135807% */
+	BR921600,		/* 0.00335015% */
+	BR1000000,		/* 0.0976562% */
+	BR1152000,		/* 0.135807% */
+	BR1500000,		/* 0.0976583% */
+	BR1562500,		/* [ZERO] 0.000000% */
+	BR2000000,		/* 0.0976562% */
+	BR2500000,		/* 0.09766% */
+	BR3000000,		/* 0.0976583% */
+	BR3125000,		/* [ZERO] 0.000000% */
+	BR3500000,		/* 0.446429% */
+	BR4000000,		/* 0.0976562% */
+	BR5000000,		/* 0.09766% */
+	BR6000000,		/* 0.0976583% */
+	BR6250000,		/* [ZERO] 0.000000% */
+	BR7000000,		/* 0.446429% */
+	BR8000000,		/* 0.0976562% */
+	BR9000000,		/* 0.368922% */
+	BR10000000		/* 0.09766% */
 };
 
 #define BRE(b)				case b:		\
@@ -168,6 +165,7 @@ enum vsci_br {
 							op(1000000);	\
 							op(1152000);	\
 							op(1500000);	\
+							op(1562500);	\
 							op(2000000);	\
 							op(2500000);	\
 							op(3000000);	\
@@ -176,6 +174,7 @@ enum vsci_br {
 							op(4000000);	\
 							op(5000000);	\
 							op(6000000);	\
+							op(6250000);	\
 							op(7000000);	\
 							op(8000000);	\
 							op(9000000);	\
@@ -341,7 +340,7 @@ union vscir_rx_rdy {
 	struct {
 		uint32_t opcode : 4;
 		uint32_t bytes : 28;
-	}c;
+	}r;
 
 	uint32_t d;
 };
@@ -350,8 +349,8 @@ static inline uint32_t vreq_rx_rdy(uint32_t bytes)
 {
 	union vscir_rx_rdy r;
 	
-	r.c.opcode = VSCIR_RX_RDY;
-	r.c.bytes = bytes;
+	r.r.opcode = VSCIR_RX_RDY;
+	r.r.bytes = bytes;
 
 	return r.d;
 }
@@ -364,7 +363,7 @@ union vscir_rxd_rdy {
 	struct {
 		uint32_t opcode : 4;
 		uint32_t bytes : 28;
-	}c;
+	}r;
 
 	uint32_t d;
 };
@@ -373,8 +372,8 @@ static inline uint32_t vreq_rxd_rdy(uint32_t bytes)
 {
 	union vscir_rxd_rdy r;
 	
-	r.c.opcode = VSCIR_RXD_RDY;
-	r.c.bytes = bytes;
+	r.r.opcode = VSCIR_RXD_RDY;
+	r.r.bytes = bytes;
 
 	return r.d;
 }
@@ -387,7 +386,7 @@ union vscir_tx_end {
 	struct {
 		uint32_t opcode : 4;
 		uint32_t resv : 28;
-	}c;
+	}r;
 
 	uint32_t d;
 };
@@ -396,8 +395,8 @@ static inline uint32_t vreq_tx_end(void)
 {
 	union vscir_tx_end t;
 	
-	t.c.opcode = VSCIR_TX_END;
-	t.c.resv = 0;
+	t.r.opcode = VSCIR_TX_END;
+	t.r.resv = 0;
 
 	return t.d;
 }
@@ -411,15 +410,8 @@ struct vsci_device *vsci_alloc_device(struct device *devp, void *sciport, int po
 void vsci_free_device(struct vsci_device *vd);
 // int to enum
 enum vsci_br vsci_baud_enc(int baud);
-// enum to int
-int vsci_baud_dec(enum vsci_br baud);
 
 int vsci_send_cmd(struct vsci_device *vd, uint32_t cmd);
-#else
-/*
-	For RTOS
-*/
-void vsci_loop(void);
 #endif
 
 #endif

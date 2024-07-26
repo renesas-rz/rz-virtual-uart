@@ -8,11 +8,19 @@
 支持接口/特性：
  - SCI0(P40_0 & P40_1, 1.8v)
  - SCIF2(P48_0 & P48_1, 3.3v)
- - SCI0可以支持到1Mbps，8bit or 9bit data，不支持校验位
- - SCIF2可以支持到10Mbps，8bit data，不支持校验位
+ - SCI0可以支持到1Mbps，8bit or 9bit data，无校验位，1停止位
+ - SCIF2可以支持到10Mbps，8bit data，无校验位，1停止位
  - 支持的波特率，参考sh-vsci.h vsci_br（这个enum定义是给虚拟串口驱动程序和CM33固件使用的，Linux应用程序不要引用）
 
 注意：
+ - 客户可以基于自己的硬件选择SCI SCIF端口组合，仅仅需要修改Linux kernel部分，参考现有补丁即可：
+     - SCI x1 + SCIF x1
+	 - SCI x1 + SCI x1
+	 - SCIF x1 + SCIF x1
+	 - SCI x1
+	 - SCIF x1
+	 (SCI0 ~ SCI1, SCIF0 ~ SCIF4)
+ - RZ/G2LC|UL MPU基于VLP Linux kernel的系统，也可以参考这个例子实现虚拟串口方案。
  - 此方案，跟OpenAMP没有关系，默认的128MB保留DDR内存可以减少到2MB，参考wiki：
   “Reduce reserved area for RZ/G2L SMARC board”，https://renesas.info/wiki/RZ-G/RZ-G2_BSP_MemoryMap
  - 由于gLibC和Linux kernel并不支持9bit data，配置SCI0 9bit数据时，需要传入CS7（kernel驱动会把CS7转换为9bit），8bit数据使用CS8。
@@ -36,7 +44,10 @@
     MHU resource IRQ 75 found, name = rsp1-core0
     MHU resource IRQ 76 found, name = msg5-core1
     MHU resource IRQ 77 found, name = rsp3=core1
-    ... ...
+    MHU REG base = ..., size = 0x1000
+	MHU SHM base = ..., size = 0x4000
+	MHU driver loaded
+	... ...
     soc:serial@0000: ttySC1 at MMIO 0x20100 (irq = 0, base_baud = 0) is a vsci
     soc:serial@0002: ttySC3 at MMIO 0x20118 (irq = 0, base_baud = 0) is a vscif
     ... ...
@@ -63,17 +74,24 @@ linux/source：
   复制所有文件到kernel/drivers/tty/serial/
 linux：
   rzg2l-vlp306-vuart-vXXX.diff：VLP3.0.6 CIP41 kernel patch
-    - 首先kernel源码目录运行make defconfig，生成初始配置。
-      打了这个补丁之后，需要首先进入kernel menuconfig界面，确保选中下面两项(*)：
+    - 首先，make defconfig，打这个补丁，然后进入kernel menuconfig界面，确保选中下面两项(*)：
         Device Drivers > Character devices > Serial drivers > Message Handling Unit support
         Device Drivers > Character devices > Serial drivers > SuperH SCI(F) serial port support
-      编译生成新的kernel和设备树的镜像文件。
-    - 客户使用基于VLP Linux kernel修改的kernel，也可以参考。
+      最后，编译kernel获得更新后的kernel和设备树镜像。
+    - 客户使用其他厂商基于VLP CIP Linux kernel修改过的kernel，也可以参考。
 u-boot：
   u-boot.diff：u-boot下支持cm33命令的补丁
   cm33/cm33.c：u-boot下需要添加的代码，复制到u-boot/cm33目录
 
 ------ HISTORY ------
+2024.07.26
+添加了6.25Mbps和1.5625Mbps波特率支持（Error Rate = 0）
+修改了1.5Mbps波特率配置
+添加了各个波特率Error Rate信息到sh-vsci.h
+VSCI device数量取决于MHU设备树定义，不是用宏定义固定配置
+RX/TX/CMD MHU通道定义在MHU设备树节点里面
+其他代码优化
+
 2024.06.26
 解决了无限长度数据包接收问题
 

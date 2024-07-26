@@ -3,8 +3,6 @@
 #define __MHU_H__
 
 
-typedef int (* vsci_cb)(uint32_t msg, void *arg);
-
 /* according to MHU hw register layout in UM */
 struct mhu_channel {
 	uint32_t status;

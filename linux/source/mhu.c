@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Renesas RZ/G2Lx MPU MHU driver
+ *	Renesas RZ/G2Lx MPU MHU driver
  *
- *  Copyright (C) 2024 Gary Yin
+ *	Copyright (C) 2024 Gary Yin
  *
  */
 #undef DEBUG
@@ -41,11 +41,9 @@
 #include "sh-vsci.h"
 #include "mhu.h"
 
-#define MHU_PORT_CNT	__MAX_DEV_NUM__
 
-// according to dts mhu node
-#define INTR_COUNT		4
-#define MHU_CH_MAX		5
+#define MHU_PORT_NUM_MAX	VSCI_DEVICE_NUM_MAX
+#define INTR_COUNT			(MHU_PORT_NUM_MAX * 2)
 
 
 /*
@@ -57,9 +55,20 @@ struct mhu_channel_msg {
 	uint32_t tx;
 };
 
+union mhu_channel_info {
+	struct {
+		uint16_t channel; /* channel index */
+		uint16_t type; /* 0: MSG, 1: RSP */
+	}c;
+
+	uint32_t info;
+};
+
 struct mhu_info {
-	int ref_count;
 	struct device dev;
+
+	int ref_count;
+	uint32_t max_mhu_port; /* fixed */
 	
 	resource_size_t reg_base;
 	resource_size_t reg_size;
@@ -80,22 +89,13 @@ typedef irqreturn_t (* mhu_irqfn_t)(int irq, void *arg);
 
 static struct mhu_info mhui = {};
 
-static __inline struct mhu_channel *get_mhu_msg_channel(int channel)
+static __inline struct mhu_channel *get_mhu_channel(int channel, int type)
 {
 	struct mhu_channel *mc;
 
 	mc = (struct mhu_channel *)mhui.reg_mapped;
 
-	return &mc[channel * 2];
-}
-
-static __inline struct mhu_channel *get_mhu_rsp_channel(int channel)
-{
-	struct mhu_channel *mc;
-
-	mc = (struct mhu_channel *)mhui.reg_mapped;
-
-	return &mc[channel * 2 + 1];
+	return &mc[channel * 2 + type];
 }
 
 static __inline struct mhu_channel_msg *get_msg_channel(int channel)
@@ -159,32 +159,26 @@ int mhu_request_irq(size_t *arg, vsci_cb rxfn, vsci_cb txfn)
 {
 	size_t paddr = *arg;
 	struct mhu_info *mi = &mhui;
-	struct mhu_port *mport = (struct mhu_port *)paddr;
-	int port = mport->port;
+	struct mhu_port *mp = (struct mhu_port *)paddr;
 	struct device *dev = &mi->dev;
 
-	if(port >= MHU_PORT_CNT) {
-		dev_err(dev, "%s: invalid MHU port num %d\n", __func__, port);
+	mp->rxfn = rxfn;
+	mp->txfn = txfn;
+
+	if(request_irq(mp->irq_rx, mhu_intr, 0, mp->irqr_name, (void *)arg)) {
+		dev_err(dev, "%s: IRQ request for %s fail\n", __func__, mp->irqr_name);
 		goto exit0;
 	}
 
-	if(request_irq(mport->irq_rx, mhu_intr, 0, mport->irqr_name, (void *)arg)) {
-		dev_err(dev, "%s: IRQ request for %s fail\n", __func__, mport->irqr_name);
-		goto exit0;
-	}
-
-	if(request_irq(mport->irq_tx, mhu_intr, 0, mport->irqt_name, (void *)arg)) {
-		dev_err(dev, "%s: IRQ request for %s fail\n", __func__, mport->irqt_name);
+	if(request_irq(mp->irq_tx, mhu_intr, 0, mp->irqt_name, (void *)arg)) {
+		dev_err(dev, "%s: IRQ request for %s fail\n", __func__, mp->irqt_name);
 		goto exit1;
 	}
 
-	mport->rxfn = rxfn;
-	mport->txfn = txfn;
-
 	return 0;
-	
+
 exit1:
-	free_irq(mport->irq_rx, NULL);
+	free_irq(mp->irq_rx, NULL);
 
 exit0:
 	return -1;
@@ -193,29 +187,9 @@ EXPORT_SYMBOL_GPL(mhu_request_irq);
 
  void mhu_free_irq(struct mhu_port *mp)
  {
-	 int port = mp->port, irq;
-	 const char *name;
-	 struct mhu_info *mi = &mhui;
-	 struct device *dev = &mi->dev;
+	free_irq(mp->irq_tx, NULL);
  
-	 if(port >= MHU_PORT_CNT) {
-		 dev_err(dev, "%s: invalid MHU port num %d\n", __func__, port);
-		 return;
-	 }
- 
-	 irq = mp->irq_tx;
-	 name = mp->irqt_name;
-	 if(free_irq(irq, NULL)) {
-		 dev_err(dev, "IRQ free for %s fail\n", name);
-		 return;
-	 }
- 
-	 irq = mp->irq_rx;
-	 name = mp->irqr_name;
-	 if(free_irq(irq, NULL)) {
-		 dev_err(dev, "IRQ free for %s fail\n", name);
-		 return;
-	 }
+	free_irq(mp->irq_rx, NULL);
  }
  EXPORT_SYMBOL_GPL(mhu_free_irq);
 
@@ -255,10 +229,14 @@ struct mhu_port *mhu_alloc_port(void)
 	int c;
 	struct mhu_info *mi = &mhui;
 	struct device *dev = &mi->dev;
+	struct device_node *dn = dev->of_node;
 	struct mhu_port *mp;
+	uint32_t arr[4] = {0};
+	union mhu_channel_info mci[3];
+	char pn[16];
 
-	if(mi->ref_count >= MHU_PORT_CNT) {
-		dev_err(dev, "no more mhu port available\n");
+	if(mi->ref_count >= mi->max_mhu_port) {
+		dev_err(dev, "no more MHU port available\n");
 		goto exit0;
 	}
 
@@ -274,37 +252,44 @@ struct mhu_port *mhu_alloc_port(void)
 	mp->port = c;
 
 	/*
-		The RX, TX INTR is set according to the device tree definition & the mhu_alloc_port()'s order.
+		The RX INTR, TX INTR, and CMD MHU channels are defined in the device tree.
 	
 		device tree definition:
-		1) Linux INTR:
-			CH4 MSG, RTOS RX REQ -> Linux CORE0 --- For MHU port 0
-			CH1 RSP, RTOS TX REQ -> Linux CORE0 --- For MHU port 0
-			CH5 MSG, RTOS RX REQ -> Linux CORE1 --- For MHU port 1
-			CH3 RSP, RTOS TX REQ -> Linux CORE1 --- For MHU port 1
-		2) RTOS INTR:
-			CH1 MSG, Linux CORE0 CMD -> RTOS --- For MHU port 0
-			CH3 MSG, Linux CORE1 CMD -> RTOS --- For MHU port 1
-		3) VSCI device 0 -- MHU port 0 (Binding)
-		4) VSCI device 1 -- MHU port 1 (Binding)
+		1) Linux INTR(L-CORE -> B-CORE):
+			MSG, RTOS RX REQ -> Linux CORE0 --- For MHU port 0
+			RSP, RTOS TX REQ -> Linux CORE0 --- For MHU port 0
+
+			MSG, RTOS RX REQ -> Linux CORE1 --- For MHU port 1
+			RSP, RTOS TX REQ -> Linux CORE1 --- For MHU port 1
+
+			... ...
+			... ...
+		2) RTOS INTR(B-CORE -> L-CORE, share the RSP channel):
+			MSG, Linux CORE0 CMD -> RTOS --- For MHU port 0
+			MSG, Linux CORE1 CMD -> RTOS --- For MHU port 1
+			... ...
+
+		RTOS VSCI device 0 -- MHU port 0 (Binding)
+		RTOS VSCI device 1 -- MHU port 1 (Binding)
 	*/
-	if(0 == mp->port) { /* port 0 */
-		mp->mch_irq_rx = get_mhu_msg_channel(4);
-		mp->mch_irq_tx = get_mhu_rsp_channel(1);
-		mp->mch_cmd_send = get_mhu_msg_channel(1);
+	sprintf(pn, "port-%d", c);
 
-		mp->msg_irq_rx = &get_msg_channel(4)->rx;
-		mp->msg_irq_tx = &get_msg_channel(1)->rx; /* IRQ TX is not MSG TX */
-		mp->msg_cmd_send = &get_msg_channel(1)->tx;
-	} else { /* port 1 */
-		mp->mch_irq_rx = get_mhu_msg_channel(5);
-		mp->mch_irq_tx = get_mhu_rsp_channel(3);
-		mp->mch_cmd_send = get_mhu_msg_channel(3);
-
-		mp->msg_irq_rx = &get_msg_channel(5)->rx;
-		mp->msg_irq_tx = &get_msg_channel(3)->rx; /* IRQ TX is not MSG TX */
-		mp->msg_cmd_send = &get_msg_channel(3)->tx;
+	if(of_property_read_u32_array(dn, pn, arr, 3)) {
+		dev_err(dev, "MHU port config read fail\n");
+		goto exit1;
 	}
+
+	mci[0].info = arr[0];
+	mci[1].info = arr[1];
+	mci[2].info = arr[2];
+
+	mp->mch_irq_rx = get_mhu_channel(mci[0].c.channel, mci[0].c.type);
+	mp->mch_irq_tx = get_mhu_channel(mci[1].c.channel, mci[1].c.type);
+	mp->mch_cmd_send = get_mhu_channel(mci[2].c.channel, mci[2].c.type);
+
+	mp->msg_irq_rx = &get_msg_channel(mci[0].c.channel)->rx;
+	mp->msg_irq_tx = &get_msg_channel(mci[1].c.channel)->rx;
+	mp->msg_cmd_send = &get_msg_channel(mci[2].c.channel)->tx;
 
 	c *= 2;
 	mp->irq_rx = mi->intr.irq[c];
@@ -314,6 +299,9 @@ struct mhu_port *mhu_alloc_port(void)
 
 	return mp;
 
+exit1:
+	kfree(mp);
+
 exit0:
 	return NULL;
 }
@@ -322,18 +310,6 @@ EXPORT_SYMBOL_GPL(mhu_alloc_port);
 void mhu_free_port(struct mhu_port *mp)
 {
 	struct mhu_info *mi = &mhui;
-	struct device *dev = &mi->dev;
-	int port = mp->port;
-
-	if(port >= MHU_PORT_CNT) {
-		dev_err(dev, "port number %d exceeds\n", port);
-		return;
-	}
-
-	if(mi->ref_count <= 0) {
-		dev_err(dev, "no more mhu port to free\n");
-		return;
-	}
 
 	kfree(mp);
 
@@ -345,7 +321,7 @@ static int mhu_probe(struct platform_device *pdev)
 {
 	struct resource *res;
 	struct device *dev = &pdev->dev;
-	struct device_node *np = pdev->dev.of_node;
+	struct device_node *dn = pdev->dev.of_node;
 	struct mhu_info *mi = &mhui;
 	int irq, i;
 	void *mem;
@@ -385,17 +361,22 @@ static int mhu_probe(struct platform_device *pdev)
 	mi->shm_size = resource_size(res);
 
 	/* SHMEM base of RTOS */
-	if(of_property_read_u32(np, "shm-rtos-base", &mi->shm_rtos_base)) {
+	if(of_property_read_u32(dn, "shm-rtos-base", &mi->shm_rtos_base)) {
 		dev_err(dev, "dts 'shm-rtos-base' read fail\n");
 		goto exit2;
 	}
 
 	/* MHU IRQ information */
-	for(i = 0; i < INTR_COUNT; i++) {
-		irq = platform_get_irq(pdev, i);
+	for(i = 0; ; i++) {
+		irq = platform_get_irq_optional(pdev, i);
 
-		if(irq < 0) {
-			dev_err(dev, "Can not find IORESOURCE_IRQ %d\n", i);
+		if(irq <= 0) {
+			mi->max_mhu_port = i >> 1;
+			break;
+		}
+
+		if(i >= INTR_COUNT) {
+			dev_err(dev, "MHU interrupt resources %d exceed %d\n", irq, INTR_COUNT);
 			goto exit2;
 		}
 
@@ -427,6 +408,9 @@ static int mhu_probe(struct platform_device *pdev)
 
 	mi->shm_mapped = mem;
 	pr_info("MHU SHM base = 0x%zx, size = 0x%x\n", (size_t)mem, (int)mi->shm_size);
+
+	mi->ref_count = 0;
+	pr_info("MHU driver loaded\n");
 
 	return 0;
 
