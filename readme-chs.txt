@@ -8,8 +8,8 @@
 支持接口/特性：
  - SCI0(P40_0 & P40_1, 1.8v)
  - SCIF2(P48_0 & P48_1, 3.3v)
- - SCI0可以支持到1Mbps，8bit or 9bit data，无校验位，1停止位
- - SCIF2可以支持到10Mbps，8bit data，无校验位，1停止位
+ - SCI可以支持到1Mbps，8bit or 9bit data，无校验位，1停止位
+ - SCIF可以支持到10Mbps，8bit data，无校验位，1停止位
  - 支持的波特率，参考sh-vsci.h vsci_br（这个enum定义是给虚拟串口驱动程序和CM33固件使用的，Linux应用程序不要引用）
 
 注意：
@@ -20,6 +20,7 @@
 	 - SCI x1
 	 - SCIF x1
 	 (SCI0 ~ SCI1, SCIF0 ~ SCIF4)
+ - CM33能管理的最大设备数量等于CA55大核数量。如果使用单核RZ/G2L，CM33只能支持1路SCIF或者1路SCIg设备。
  - RZ/G2LC|UL MPU基于VLP Linux kernel的系统，也可以参考这个例子实现虚拟串口方案。
  - 此方案，跟OpenAMP没有关系，默认的128MB保留DDR内存可以减少到2MB，参考wiki：
   “Reduce reserved area for RZ/G2L SMARC board”，https://renesas.info/wiki/RZ-G/RZ-G2_BSP_MemoryMap
@@ -44,12 +45,14 @@
     MHU resource IRQ 75 found, name = rsp1-core0
     MHU resource IRQ 76 found, name = msg5-core1
     MHU resource IRQ 77 found, name = rsp3=core1
-    MHU REG base = ..., size = 0x1000
-	MHU SHM base = ..., size = 0x4000
-	MHU driver loaded
+    MHU REG base = ..., size = ...
+	MHU SHM base = ...(Linux VA), ...(Linux PA)
+	MHU SHM base = ...(RTOS PA)
+	MHU SHM size = ...
+	MHU driver loaded, supports 2 port(s) in total
 	... ...
-    soc:serial@0000: ttySC1 at MMIO 0x20100 (irq = 0, base_baud = 0) is a vsci
-    soc:serial@0002: ttySC3 at MMIO 0x20118 (irq = 0, base_baud = 0) is a vscif
+    soc:serial@0000: ttySC1 at MMIO ... (irq = 0, base_baud = 0) is a vsci
+    soc:serial@0002: ttySC3 at MMIO ... (irq = 0, base_baud = 0) is a vscif
     ... ...
     ttySC1就是/dev/ttySC1，对应SCI0，可达1Mbps
     ttySC3就是/dev/ttySC3，对应SCIF2，可达10Mbps
@@ -73,8 +76,8 @@ bin：
 linux/source：
   复制所有文件到kernel/drivers/tty/serial/
 linux：
-  rzg2l-vlp306-vuart-vXXX.diff：VLP3.0.6 CIP41 kernel patch
-    - 首先，make defconfig，打这个补丁，然后进入kernel menuconfig界面，确保选中下面两项(*)：
+  rzg2l-vlp306-cip41-vuart.diff：VLP3.0.6 CIP41 kernel patch(git diff生成)
+    - 首先，make defconfig，再打这个补丁，然后进入kernel menuconfig界面，确保选中下面两项(*)：
         Device Drivers > Character devices > Serial drivers > Message Handling Unit support
         Device Drivers > Character devices > Serial drivers > SuperH SCI(F) serial port support
       最后，编译kernel获得更新后的kernel和设备树镜像。
@@ -84,28 +87,32 @@ u-boot：
   cm33/cm33.c：u-boot下需要添加的代码，复制到u-boot/cm33目录
 
 ------ HISTORY ------
+2024.08.16
+添加了RS-485半双工通信支持，设备树里面的"rs485-gpio"属性控制。
+虚拟串口设备动态申请，设备树里面可以开启多个虚拟串口设备，但是同时打开的不超过2个。
+
 2024.07.26
-添加了6.25Mbps和1.5625Mbps波特率支持（Error Rate = 0）
-修改了1.5Mbps波特率配置
-添加了各个波特率Error Rate信息到sh-vsci.h
-VSCI device数量取决于MHU设备树定义，不是用宏定义固定配置
-RX/TX/CMD MHU通道定义在MHU设备树节点里面
-其他代码优化
+添加了6.25Mbps和1.5625Mbps波特率支持（Error Rate = 0）。
+修改了1.5Mbps波特率配置。
+添加了各个波特率Error Rate信息到sh-vsci.h。
+VSCI device数量取决于MHU设备树定义，不是用宏定义固定配置。
+RX/TX/CMD MHU通道定义在MHU设备树节点里面。
+其他代码优化。
 
 2024.06.26
-解决了无限长度数据包接收问题
+解决了无限长度数据包接收问题。
 
 2024.06.25
-代码优化
-VSCI_BUF_SIZE扩展到1024字节
-共享内存扩展到4KB
-增加了3.125Mbps波特率支持
-支持了所有SCI SCIF设备
-CM33 NS Vector Table base修改到0x0001F800
+代码优化。
+VSCI_BUF_SIZE扩展到1024字节。
+共享内存扩展到4KB。
+增加了3.125Mbps波特率支持。
+支持了所有SCI SCIF设备。
+CM33 NS Vector Table base修改到0x0001F800。
  - fatload command需要按照上述内容修改
 
 2024.06.20
-解决了256字节数据块接收问题
+解决了256字节数据块接收问题。
 
 2024.06.04
-第一版
+第一版。

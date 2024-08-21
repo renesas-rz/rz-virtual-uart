@@ -92,7 +92,7 @@ index 2349bb97225d..cd06b507ea11 100644
  
  &pinctrl {
 diff --git a/arch/arm64/boot/dts/renesas/rzg2l-smarc.dtsi b/arch/arm64/boot/dts/renesas/rzg2l-smarc.dtsi
-index 6f1860d14d73..cafc928b71c0 100644
+index 6f1860d14d73..bdd7b85d3450 100644
 --- a/arch/arm64/boot/dts/renesas/rzg2l-smarc.dtsi
 +++ b/arch/arm64/boot/dts/renesas/rzg2l-smarc.dtsi
 @@ -10,7 +10,9 @@
@@ -106,7 +106,7 @@ index 6f1860d14d73..cafc928b71c0 100644
  		i2c3 = &i2c3;
  	};
  
-@@ -100,10 +102,41 @@ &scif2 {
+@@ -100,10 +102,43 @@ &scif2 {
  	pinctrl-names = "default";
  
  	uart-has-rtscts;
@@ -143,6 +143,8 @@ index 6f1860d14d73..cafc928b71c0 100644
 +
 +	port-num = <2>; /* SCIF2 */
 +
++	rs485-gpio = <&pinctrl RZG2L_GPIO(48, 4) GPIO_ACTIVE_LOW>;
++
 +	status = "okay";
 +};
 +
@@ -150,18 +152,18 @@ index 6f1860d14d73..cafc928b71c0 100644
  	pinctrl-0 = <&ssi0_pins>;
  	pinctrl-names = "default";
 diff --git a/drivers/clk/renesas/r9a07g044-cpg.c b/drivers/clk/renesas/r9a07g044-cpg.c
-index c21efb04634e..30bca698b210 100644
+index c21efb04634e..539d2713b98a 100644
 --- a/drivers/clk/renesas/r9a07g044-cpg.c
 +++ b/drivers/clk/renesas/r9a07g044-cpg.c
 @@ -490,6 +490,11 @@ static const unsigned int r9a07g044_crit_mod_clks[] __initconst = {
  	MOD_CLK_BASE + R9A07G044_IA55_PCLK,
  	MOD_CLK_BASE + R9A07G044_IA55_CLK,
  	MOD_CLK_BASE + R9A07G044_DMAC_ACLK,
-+	MOD_CLK_BASE + R9A07G044_SCI0_CLKP,
-+	MOD_CLK_BASE + R9A07G044_SCIF2_CLK_PCK,
-+	MOD_CLK_BASE + R9A07G044_OSTM1_PCLK,
-+	MOD_CLK_BASE + R9A07G044_OSTM2_PCLK,
-+	MOD_CLK_BASE + R9A07G044_SCIF1_CLK_PCK,
++	MOD_CLK_BASE + R9A07G044_SCI0_CLKP,/* Optional, VSCI device */
++	MOD_CLK_BASE + R9A07G044_SCIF2_CLK_PCK, /* Optional, VSCIF device */
++	MOD_CLK_BASE + R9A07G044_OSTM1_PCLK, /* Must. Don't change. Timer for CM33 */
++	MOD_CLK_BASE + R9A07G044_OSTM2_PCLK, /* Must. Don't change, Timer for CM33 */
++	MOD_CLK_BASE + R9A07G044_SCIF1_CLK_PCK, /* Optional, VSCIF device */
  };
  
  #ifdef CONFIG_CLK_R9A07G044
@@ -199,10 +201,19 @@ index caf167f0c10a..f3e0c460106a 100644
  obj-$(CONFIG_SERIAL_IMX) += imx.o
  obj-$(CONFIG_SERIAL_IMX_EARLYCON) += imx_earlycon.o
 diff --git a/drivers/tty/serial/sh-sci.c b/drivers/tty/serial/sh-sci.c
-index b5f306557654..605503df6d6c 100644
+index b5f306557654..3615c7e9b9cf 100644
 --- a/drivers/tty/serial/sh-sci.c
 +++ b/drivers/tty/serial/sh-sci.c
-@@ -58,6 +58,9 @@
+@@ -49,6 +49,8 @@
+ #include <linux/timer.h>
+ #include <linux/tty.h>
+ #include <linux/tty_flip.h>
++#include <linux/gpio.h>
++#include <linux/of_gpio.h>
+ 
+ #ifdef CONFIG_SUPERH
+ #include <asm/sh_bios.h>
+@@ -58,6 +60,9 @@
  #include "serial_mctrl_gpio.h"
  #include "sh-sci.h"
  
@@ -212,21 +223,22 @@ index b5f306557654..605503df6d6c 100644
  /* Offsets into the sci_port->irqs array */
  enum {
  	SCIx_ERI_IRQ,
-@@ -115,6 +118,13 @@ struct sci_port_params {
+@@ -115,6 +120,14 @@ struct sci_port_params {
  	unsigned int error_clear;
  };
  
 +struct vsci_info {
-+	int vscix; /* PORT_VSCI or PORT_VSCIF */
++	int port_type; /* PORT_VSCI or PORT_VSCIF */
 +	int port_num; /* SCI or SCIF port number(physical) */
 +	int tx_start; /* 0: VSCIx port is not working(TX). 1: VSCIx port is working(TX) */
-+	struct vsci_device *vd;
++	int rs485_gpio;
++	struct vsci_device vdev;
 +};
 +
  struct sci_port {
  	struct uart_port	port;
  
-@@ -160,6 +170,8 @@ struct sci_port {
+@@ -160,6 +173,8 @@ struct sci_port {
  
  	bool has_rtscts;
  	bool autorts;
@@ -235,7 +247,7 @@ index b5f306557654..605503df6d6c 100644
  };
  
  #define SCI_NPORTS CONFIG_SERIAL_SH_SCI_NR_UARTS
-@@ -541,6 +553,9 @@ static void sci_port_enable(struct sci_port *sci_port)
+@@ -541,6 +556,9 @@ static void sci_port_enable(struct sci_port *sci_port)
  
  	pm_runtime_get_sync(sci_port->port.dev);
  
@@ -245,7 +257,7 @@ index b5f306557654..605503df6d6c 100644
  	for (i = 0; i < SCI_NUM_CLKS; i++) {
  		clk_prepare_enable(sci_port->clks[i]);
  		sci_port->clk_rates[i] = clk_get_rate(sci_port->clks[i]);
-@@ -555,8 +570,10 @@ static void sci_port_disable(struct sci_port *sci_port)
+@@ -555,8 +573,10 @@ static void sci_port_disable(struct sci_port *sci_port)
  	if (!sci_port->port.dev)
  		return;
  
@@ -258,7 +270,7 @@ index b5f306557654..605503df6d6c 100644
  
  	pm_runtime_put_sync(sci_port->port.dev);
  }
-@@ -573,11 +590,80 @@ static inline unsigned long port_rx_irq_mask(struct uart_port *port)
+@@ -573,11 +593,84 @@ static inline unsigned long port_rx_irq_mask(struct uart_port *port)
  	return SCSCR_RIE | (to_sci_port(port)->cfg->scscr & SCSCR_REIE);
  }
  
@@ -266,10 +278,11 @@ index b5f306557654..605503df6d6c 100644
 +{
 +	struct uart_port *port = &sp->port;
 +	struct tty_port *tport = &port->state->port;
++	struct vsci_device *vd = &sp->vi->vdev;
 +	unsigned char *pb;
 +	int i, count;
 +
-+	pb = (char *)sp->vi->vd->vc->bcore.rbuf;
++	pb = (char *)vd->vc->bcore.rbuf;
 +
 +	if(bytes > (VSCI_BUF_SIZE / 2)) {
 +		pb += VSCI_BUF_SIZE / 2;
@@ -297,11 +310,12 @@ index b5f306557654..605503df6d6c 100644
 +{
 +	struct uart_port *port = &sp->port;
 +	struct circ_buf *xmit = &port->state->xmit;
++	struct vsci_device *vd = &sp->vi->vdev;
 +	unsigned char c, *pb;
 +	int bytes;
 +
 +	bytes = 0;
-+	pb = (char *)sp->vi->vd->vc->bcore.tbuf;
++	pb = (char *)vd->vc->bcore.tbuf;
 +	while(!uart_circ_empty(xmit)) {
 +		c = xmit->buf[xmit->tail];
 +		xmit->tail = (xmit->tail + 1) & (UART_XMIT_SIZE - 1);
@@ -314,7 +328,7 @@ index b5f306557654..605503df6d6c 100644
 +	port->icount.tx += bytes;
 +
 +	vsci_send_cmd(
-+		sp->vi->vd,
++		vd,
 +		vcmd_txd_rdy(bytes)
 +	);
 +}
@@ -330,6 +344,8 @@ index b5f306557654..605503df6d6c 100644
 +
 +		if(!uart_circ_empty(&s->port.state->xmit)) {
 +			s->vi->tx_start = 1;
++			if(gpio_is_valid(s->vi->rs485_gpio))
++				gpio_set_value(s->vi->rs485_gpio, 1); // RS-485 OUTPUT mode
 +			vsci_transmit(s);
 +		}
 +
@@ -339,7 +355,7 @@ index b5f306557654..605503df6d6c 100644
  #ifdef CONFIG_SERIAL_SH_SCI_DMA
  	if (port->type == PORT_SCIFA || port->type == PORT_SCIFB) {
  		u16 new, scr = serial_port_in(port, SCSCR);
-@@ -620,6 +706,17 @@ static void sci_start_tx(struct uart_port *port)
+@@ -620,6 +713,17 @@ static void sci_start_tx(struct uart_port *port)
  static void sci_stop_tx(struct uart_port *port)
  {
  	unsigned short ctrl;
@@ -348,7 +364,7 @@ index b5f306557654..605503df6d6c 100644
 +	if(s->vi) {
 +
 +		vsci_send_cmd(
-+			s->vi->vd,
++			&s->vi->vdev,
 +			vcmd_stop(0, 1)
 +		);
 +
@@ -357,7 +373,7 @@ index b5f306557654..605503df6d6c 100644
  
  	/* Clear TIE (Transmit Interrupt Enable) bit in SCSCR */
  	ctrl = serial_port_in(port, SCSCR);
-@@ -643,6 +740,17 @@ static void sci_stop_tx(struct uart_port *port)
+@@ -643,6 +747,17 @@ static void sci_stop_tx(struct uart_port *port)
  static void sci_start_rx(struct uart_port *port)
  {
  	unsigned short ctrl;
@@ -366,7 +382,7 @@ index b5f306557654..605503df6d6c 100644
 +	if(s->vi) {
 +
 +		vsci_send_cmd(
-+			s->vi->vd,
++			&s->vi->vdev,
 +			vcmd_start(1, 0)
 +		);
 +
@@ -375,7 +391,7 @@ index b5f306557654..605503df6d6c 100644
  
  	ctrl = serial_port_in(port, SCSCR) | port_rx_irq_mask(port);
  
-@@ -655,6 +763,17 @@ static void sci_start_rx(struct uart_port *port)
+@@ -655,6 +770,17 @@ static void sci_start_rx(struct uart_port *port)
  static void sci_stop_rx(struct uart_port *port)
  {
  	unsigned short ctrl;
@@ -384,7 +400,7 @@ index b5f306557654..605503df6d6c 100644
 +	if(s->vi) {
 +
 +		vsci_send_cmd(
-+			s->vi->vd,
++			&s->vi->vdev,
 +			vcmd_stop(1, 0)
 +		);
 +
@@ -393,7 +409,7 @@ index b5f306557654..605503df6d6c 100644
  
  	ctrl = serial_port_in(port, SCSCR);
  
-@@ -1142,6 +1261,9 @@ static ssize_t rx_fifo_trigger_show(struct device *dev,
+@@ -1142,6 +1268,9 @@ static ssize_t rx_fifo_trigger_show(struct device *dev,
  	struct uart_port *port = dev_get_drvdata(dev);
  	struct sci_port *sci = to_sci_port(port);
  
@@ -403,7 +419,7 @@ index b5f306557654..605503df6d6c 100644
  	return sprintf(buf, "%d\n", sci->rx_trigger);
  }
  
-@@ -1154,6 +1276,9 @@ static ssize_t rx_fifo_trigger_store(struct device *dev,
+@@ -1154,6 +1283,9 @@ static ssize_t rx_fifo_trigger_store(struct device *dev,
  	int ret;
  	long r;
  
@@ -413,7 +429,7 @@ index b5f306557654..605503df6d6c 100644
  	ret = kstrtol(buf, 0, &r);
  	if (ret)
  		return ret;
-@@ -1175,6 +1300,9 @@ static ssize_t rx_fifo_timeout_show(struct device *dev,
+@@ -1175,6 +1307,9 @@ static ssize_t rx_fifo_timeout_show(struct device *dev,
  	struct sci_port *sci = to_sci_port(port);
  	int v;
  
@@ -423,7 +439,7 @@ index b5f306557654..605503df6d6c 100644
  	if (port->type == PORT_HSCIF)
  		v = sci->hscif_tot >> HSSCR_TOT_SHIFT;
  	else
-@@ -1193,6 +1321,9 @@ static ssize_t rx_fifo_timeout_store(struct device *dev,
+@@ -1193,6 +1328,9 @@ static ssize_t rx_fifo_timeout_store(struct device *dev,
  	int ret;
  	long r;
  
@@ -433,7 +449,7 @@ index b5f306557654..605503df6d6c 100644
  	ret = kstrtol(buf, 0, &r);
  	if (ret)
  		return ret;
-@@ -2061,10 +2192,71 @@ static void sci_free_irq(struct sci_port *port)
+@@ -2061,10 +2199,75 @@ static void sci_free_irq(struct sci_port *port)
  	}
  }
  
@@ -448,7 +464,7 @@ index b5f306557654..605503df6d6c 100644
 +
 +	if(VSCIR_RX_RDY == opcode) {
 +		r.d = msg;
-+		//pr_info("#RXI %d\n", r.c.bytes);
++		//pr_info("#RXI %d\n", r.r.bytes);
 +		vsci_receive(sp, r.r.bytes, 1);
 +	} else if(VSCIR_RXD_RDY == opcode) {
 +		rd.d = msg;
@@ -474,10 +490,14 @@ index b5f306557654..605503df6d6c 100644
 +	if(VSCIR_TX_END == opcode) {
 +		//pr_info("#TEI\n");
 +
-+		if(!uart_circ_empty(xmit))
++		if(!uart_circ_empty(xmit)) {
 +			vsci_transmit(sp);
-+		else
++		} else {
++			if(gpio_is_valid(sp->vi->rs485_gpio))
++				gpio_set_value(sp->vi->rs485_gpio, 0); // RS-485 INPUT mode
++
 +			sp->vi->tx_start = 0;
++		}
 +
 +		/* rtos side will stop tx hw when tx finished */
 +	} else {
@@ -507,7 +527,7 @@ index b5f306557654..605503df6d6c 100644
  
  	return (status & SCxSR_TEND(port)) && !in_tx_fifo ? TIOCSER_TEMT : 0;
  }
-@@ -2125,6 +2317,9 @@ static void sci_set_mctrl(struct uart_port *port, unsigned int mctrl)
+@@ -2125,6 +2328,9 @@ static void sci_set_mctrl(struct uart_port *port, unsigned int mctrl)
  {
  	struct sci_port *s = to_sci_port(port);
  
@@ -517,7 +537,7 @@ index b5f306557654..605503df6d6c 100644
  	if (mctrl & TIOCM_LOOP) {
  		const struct plat_sci_reg *reg;
  
-@@ -2172,6 +2367,9 @@ static unsigned int sci_get_mctrl(struct uart_port *port)
+@@ -2172,6 +2378,9 @@ static unsigned int sci_get_mctrl(struct uart_port *port)
  	struct mctrl_gpios *gpios = s->gpios;
  	unsigned int mctrl = 0;
  
@@ -527,7 +547,7 @@ index b5f306557654..605503df6d6c 100644
  	mctrl_gpio_get(gpios, &mctrl);
  
  	/*
-@@ -2194,6 +2392,11 @@ static unsigned int sci_get_mctrl(struct uart_port *port)
+@@ -2194,6 +2403,11 @@ static unsigned int sci_get_mctrl(struct uart_port *port)
  
  static void sci_enable_ms(struct uart_port *port)
  {
@@ -539,7 +559,7 @@ index b5f306557654..605503df6d6c 100644
  	mctrl_gpio_enable_ms(to_sci_port(port)->gpios);
  }
  
-@@ -2201,6 +2404,10 @@ static void sci_break_ctl(struct uart_port *port, int break_state)
+@@ -2201,6 +2415,10 @@ static void sci_break_ctl(struct uart_port *port, int break_state)
  {
  	unsigned short scscr, scsptr;
  	unsigned long flags;
@@ -550,18 +570,43 @@ index b5f306557654..605503df6d6c 100644
  
  	/* check wheter the port has SCSPTR */
  	if (!sci_getreg(port, SCSPTR)->size) {
-@@ -2233,6 +2440,18 @@ static int sci_startup(struct uart_port *port)
+@@ -2228,11 +2446,43 @@ static void sci_break_ctl(struct uart_port *port, int break_state)
+ 	spin_unlock_irqrestore(&port->lock, flags);
+ }
+ 
++static DEFINE_MUTEX(vsci_registration_lock);
++
+ static int sci_startup(struct uart_port *port)
+ {
  	struct sci_port *s = to_sci_port(port);
  	int ret;
  
 +	if(s->vi) {
 +
-+		vsci_send_cmd(
-+			s->vi->vd,
-+			vcmd_open(s->vi->vd->devname)
++		mutex_lock(&vsci_registration_lock);
++		ret = vsci_alloc_device(
++			port->dev,
++			&s->vi->vdev,
++			(void *)s,
++			s->vi->port_type,
++			s->vi->port_num,
++			vsci_intr_cb_rx,
++			vsci_intr_cb_tx
 +		);
++		mutex_unlock(&vsci_registration_lock);
 +
-+		s->vi->vd->enabled = 1;
++		if(ret < 0)
++			return -ENODEV;
++
++		s->vi->tx_start = 0;
++
++		if(gpio_is_valid(s->vi->rs485_gpio))
++			gpio_set_value(s->vi->rs485_gpio, 0); // RS-485 INPUT mode
++
++		vsci_send_cmd(
++			&s->vi->vdev,
++			vcmd_open(s->vi->vdev.devname)
++		);
 +
 +		return 0;
 +	}
@@ -569,25 +614,32 @@ index b5f306557654..605503df6d6c 100644
  	dev_dbg(port->dev, "%s(%d)\n", __func__, port->line);
  
  	sci_request_dma(port);
-@@ -2252,6 +2471,17 @@ static void sci_shutdown(struct uart_port *port)
+@@ -2252,6 +2502,24 @@ static void sci_shutdown(struct uart_port *port)
  	unsigned long flags;
  	u16 scr;
  
 +	if(s->vi) {
 +
++		sci_stop_rx(port);
++		sci_stop_tx(port);
++
 +		s->vi->tx_start = 0;
 +		vsci_send_cmd(
-+			s->vi->vd,
++			&s->vi->vdev,
 +			vcmd_close()
 +		);
-+		s->vi->vd->enabled = 0;
++
++		mutex_lock(&vsci_registration_lock);
++		vsci_free_device(&s->vi->vdev);
++		mutex_unlock(&vsci_registration_lock);
++
 +		return;
 +	}
 +
  	dev_dbg(port->dev, "%s(%d)\n", __func__, port->line);
  
  	s->autorts = false;
-@@ -2415,6 +2645,9 @@ static void sci_reset(struct uart_port *port)
+@@ -2415,6 +2683,9 @@ static void sci_reset(struct uart_port *port)
  	unsigned int status;
  	struct sci_port *s = to_sci_port(port);
  
@@ -597,7 +649,7 @@ index b5f306557654..605503df6d6c 100644
  	serial_port_out(port, SCSCR, s->hscif_tot);	/* TE=0, RE=0, CKE1=0 */
  
  	reg = sci_getreg(port, SCFCR);
-@@ -2457,6 +2690,29 @@ static void sci_set_termios(struct uart_port *port, struct ktermios *termios,
+@@ -2457,6 +2728,29 @@ static void sci_set_termios(struct uart_port *port, struct ktermios *termios,
  	int best_clk = -1;
  	unsigned long flags;
  
@@ -609,7 +661,7 @@ index b5f306557654..605503df6d6c 100644
 +		uart_update_timeout(port, termios->c_cflag, baud);
 +
 +		vsci_send_cmd(
-+			s->vi->vd,
++			&s->vi->vdev,
 +			vcmd_conf(
 +				vsci_baud_enc(baud),
 +				(CS8 == (termios->c_cflag & CSIZE)) ? 8 : 9,
@@ -627,7 +679,7 @@ index b5f306557654..605503df6d6c 100644
  	if ((termios->c_cflag & CSIZE) == CS7) {
  		smr_val |= SCSMR_CHR;
  	} else {
-@@ -2787,6 +3043,10 @@ static const char *sci_type(struct uart_port *port)
+@@ -2787,6 +3081,10 @@ static const char *sci_type(struct uart_port *port)
  		return "scifb";
  	case PORT_HSCIF:
  		return "hscif";
@@ -638,7 +690,7 @@ index b5f306557654..605503df6d6c 100644
  	}
  
  	return NULL;
-@@ -2824,6 +3084,9 @@ static void sci_release_port(struct uart_port *port)
+@@ -2824,6 +3122,9 @@ static void sci_release_port(struct uart_port *port)
  {
  	struct sci_port *sport = to_sci_port(port);
  
@@ -648,7 +700,7 @@ index b5f306557654..605503df6d6c 100644
  	if (port->dev->of_node || (port->flags & UPF_IOREMAP)) {
  		iounmap(port->membase);
  		port->membase = NULL;
-@@ -2838,6 +3101,9 @@ static int sci_request_port(struct uart_port *port)
+@@ -2838,6 +3139,9 @@ static int sci_request_port(struct uart_port *port)
  	struct sci_port *sport = to_sci_port(port);
  	int ret;
  
@@ -658,68 +710,32 @@ index b5f306557654..605503df6d6c 100644
  	res = request_mem_region(port->mapbase, sport->reg_size,
  				 dev_name(port->dev));
  	if (unlikely(res == NULL)) {
-@@ -2996,12 +3262,15 @@ sci_probe_regmap(const struct plat_sci_port *cfg)
- 	return &sci_port_params[regtype];
- }
- 
-+static DEFINE_MUTEX(vsci_registration_lock);
-+
- static int sci_init_single(struct platform_device *dev,
- 			   struct sci_port *sci_port, unsigned int index,
- 			   const struct plat_sci_port *p, bool early)
- {
- 	struct uart_port *port = &sci_port->port;
- 	const struct resource *res;
-+	struct vsci_device *vd;
- 	unsigned int i;
- 	int ret;
- 
-@@ -3012,6 +3281,30 @@ static int sci_init_single(struct platform_device *dev,
+@@ -3012,6 +3316,14 @@ static int sci_init_single(struct platform_device *dev,
  	port->line	= index;
  	port->has_sysrq = IS_ENABLED(CONFIG_SERIAL_SH_SCI_CONSOLE);
  
 +	if(sci_port->vi) {
-+
-+		mutex_lock(&vsci_registration_lock);
-+		sci_port->vi->vd = vsci_alloc_device(
-+			&dev->dev,
-+			(void *)sci_port,
-+			sci_port->vi->vscix,
-+			sci_port->vi->port_num,
-+			vsci_intr_cb_rx,
-+			vsci_intr_cb_tx
-+		);
-+		mutex_unlock(&vsci_registration_lock);
-+
-+		if(NULL == sci_port->vi->vd)
-+			return -ENODEV;
-+
-+		vd = sci_port->vi->vd;
 +		port->dev = &dev->dev;
 +		port->flags = UPF_FIXED_PORT | UPF_BOOT_AUTOCONF | p->flags;
 +		port->fifosize = VSCI_BUF_SIZE;
-+		port->mapbase = vd->vc_base;
++		port->mapbase = vsci_get_mapbase(sci_port->vi->port_type, sci_port->vi->port_num);
 +		return 0;
 +	}
 +
  	res = platform_get_resource(dev, IORESOURCE_MEM, 0);
  	if (res == NULL)
  		return -ENOMEM;
-@@ -3123,6 +3416,13 @@ static int sci_init_single(struct platform_device *dev,
+@@ -3123,6 +3435,9 @@ static int sci_init_single(struct platform_device *dev,
  
  static void sci_cleanup_single(struct sci_port *port)
  {
-+	if(port->vi) {
-+		mutex_lock(&vsci_registration_lock);
-+		vsci_free_device(port->vi->vd);
-+		mutex_unlock(&vsci_registration_lock);
++	if(port->vi)
 +		kfree(port->vi);
-+	}
 +
  	pm_runtime_disable(port->port.dev);
  }
  
-@@ -3351,6 +3651,12 @@ static const struct of_device_id of_sci_match[] = {
+@@ -3351,6 +3666,12 @@ static const struct of_device_id of_sci_match[] = {
  	}, {
  		.compatible = "renesas,sci",
  		.data = SCI_OF_DATA(PORT_SCI, SCIx_SCI_REGTYPE),
@@ -732,11 +748,12 @@ index b5f306557654..605503df6d6c 100644
  	}, {
  		/* Terminator */
  	},
-@@ -3421,6 +3727,24 @@ static struct plat_sci_port *sci_parse_dt(struct platform_device *pdev,
+@@ -3421,6 +3742,30 @@ static struct plat_sci_port *sci_parse_dt(struct platform_device *pdev,
  	sp->has_rtscts = of_property_read_bool(np, "uart-has-rtscts");
  	sp->rstc = rstc;
  
 +	sp->vi = NULL; /* for non-vsci device */
++
 +	if((PORT_VSCI == p->type) || (PORT_VSCIF == p->type)) {
 +		sp->vi = (struct vsci_info *)kzalloc(sizeof(struct vsci_info), GFP_KERNEL);
 +
@@ -745,19 +762,24 @@ index b5f306557654..605503df6d6c 100644
 +			return ERR_PTR(-ENOMEM);
 +		}
 +
-+		sp->vi->vscix = p->type;
-+		sp->vi->tx_start = 0;
++		sp->vi->port_type = p->type;
 +
 +		/* physical SCI/SCIF device index */
 +		if(of_property_read_u32(np, "port-num", &sp->vi->port_num)) {
 +			return ERR_PTR(-EPERM);
 +		}
++
++		/* check RS-485 support, optional */
++		sp->vi->rs485_gpio = of_get_named_gpio(np, "rs485-gpio", 0);
++
++		if(gpio_is_valid(sp->vi->rs485_gpio))
++			gpio_direction_output(sp->vi->rs485_gpio, 0); // output LOW(RS-485 INPUT Mode) first
 +	}
 +
  	return p;
  }
  
-@@ -3456,9 +3780,11 @@ static int sci_probe_single(struct platform_device *dev,
+@@ -3456,9 +3801,11 @@ static int sci_probe_single(struct platform_device *dev,
  	if (ret)
  		return ret;
  

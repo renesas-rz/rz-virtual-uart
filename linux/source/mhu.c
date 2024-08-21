@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- *	Renesas RZ/G2Lx MPU MHU driver
+ *	Renesas RZ MPU MHU driver
  *
  *	Copyright (C) 2024 Gary Yin
  *
@@ -43,7 +43,7 @@
 
 
 #define MHU_PORT_NUM_MAX	VSCI_DEVICE_NUM_MAX
-#define INTR_COUNT			(MHU_PORT_NUM_MAX * 2)
+#define MHU_INTR_COUNT		(MHU_PORT_NUM_MAX * 2)
 
 
 /*
@@ -67,21 +67,23 @@ union mhu_channel_info {
 struct mhu_info {
 	struct device dev;
 
-	int ref_count;
-	uint32_t max_mhu_port; /* fixed */
-	
+	uint32_t port_count; /* maximum supported MHU ports */
+	int port_used[MHU_PORT_NUM_MAX]; /* UART app opened ports */
+	struct mhu_port *port[MHU_PORT_NUM_MAX]; /* MHU ports */
+
 	resource_size_t reg_base;
 	resource_size_t reg_size;
 	void *reg_mapped;
-	
+
 	resource_size_t shm_base;
 	resource_size_t shm_size;
 	void *shm_mapped;
+
 	uint32_t shm_rtos_base; /* RTOS's view of SHMEM base, 32bit PA */
-	
+
 	struct {
-		int irq[INTR_COUNT];
-		const char *irqname[INTR_COUNT];
+		int irq[MHU_INTR_COUNT];
+		const char *irqname[MHU_INTR_COUNT];
 	}intr;
 };
 
@@ -143,55 +145,56 @@ exit0:
 	return IRQ_NONE;
 }
 
-int mhu_get_shm_base(size_t *pa, size_t *va, uint32_t *rtos_pa)
+static int mhu_request_irq(void *arg, struct mhu_port *mp, vsci_cb rxfn, vsci_cb txfn)
 {
 	struct mhu_info *mi = &mhui;
-
-	*pa = mi->shm_base;
-	*va = (size_t)mi->shm_mapped;
-	*rtos_pa = mi->shm_rtos_base;
-
-	return 0;
-}
-EXPORT_SYMBOL_GPL(mhu_get_shm_base);
-
-int mhu_request_irq(size_t *arg, vsci_cb rxfn, vsci_cb txfn)
-{
-	size_t paddr = *arg;
-	struct mhu_info *mi = &mhui;
-	struct mhu_port *mp = (struct mhu_port *)paddr;
 	struct device *dev = &mi->dev;
+	int c = mp->port;
 
 	mp->rxfn = rxfn;
 	mp->txfn = txfn;
+	mp->arg = arg;
 
-	if(request_irq(mp->irq_rx, mhu_intr, 0, mp->irqr_name, (void *)arg)) {
-		dev_err(dev, "%s: IRQ request for %s fail\n", __func__, mp->irqr_name);
+	if(request_irq(mp->irq_rx, mhu_intr, 0, mp->irqr_name, arg)) {
+		dev_err(dev, "%s: IRQ request for %s port %d  fail\n", __func__, mp->irqr_name, c);
 		goto exit0;
 	}
 
-	if(request_irq(mp->irq_tx, mhu_intr, 0, mp->irqt_name, (void *)arg)) {
-		dev_err(dev, "%s: IRQ request for %s fail\n", __func__, mp->irqt_name);
+	if(request_irq(mp->irq_tx, mhu_intr, 0, mp->irqt_name, arg)) {
+		dev_err(dev, "%s: IRQ request for %s port %d fail\n", __func__, mp->irqt_name, c);
 		goto exit1;
 	}
 
 	return 0;
 
 exit1:
-	free_irq(mp->irq_rx, NULL);
+	free_irq(mp->irq_rx, arg);
 
 exit0:
 	return -1;
 }
-EXPORT_SYMBOL_GPL(mhu_request_irq);
 
- void mhu_free_irq(struct mhu_port *mp)
+static void mhu_free_irq(struct mhu_port *mp)
  {
-	free_irq(mp->irq_tx, NULL);
+	free_irq(mp->irq_tx, mp->arg);
  
-	free_irq(mp->irq_rx, NULL);
+	free_irq(mp->irq_rx, mp->arg);
  }
- EXPORT_SYMBOL_GPL(mhu_free_irq);
+
+ void mhu_get_shm_base(size_t *pa, size_t *va, uint32_t *rtos_pa)
+{
+	struct mhu_info *mi = &mhui;
+
+	if(pa)
+		*pa = mi->shm_base;
+
+	if(va)
+		*va = (size_t)mi->shm_mapped;
+
+	if(rtos_pa)
+		*rtos_pa = mi->shm_rtos_base;
+}
+EXPORT_SYMBOL_GPL(mhu_get_shm_base);
 
  int mhu_send_msg(struct mhu_port *mp, uint32_t msg)
 {
@@ -224,36 +227,68 @@ EXPORT_SYMBOL_GPL(mhu_request_irq);
 }
 EXPORT_SYMBOL_GPL(mhu_send_msg);
 
-struct mhu_port *mhu_alloc_port(void)
+int mhu_alloc_port(struct vsci_device *vd, vsci_cb rxfn, vsci_cb txfn)
 {
 	int c;
 	struct mhu_info *mi = &mhui;
 	struct device *dev = &mi->dev;
-	struct device_node *dn = dev->of_node;
 	struct mhu_port *mp;
+
+	for(c = 0; c < mi->port_count; c++) {
+		if(0 == mi->port_used[c]) {
+			mi->port_used[c] = 1;
+			break;
+		}
+	}
+
+	if(c == mi->port_count) {
+		dev_err(dev, "no more MHU port available, used %d port(s) in total\n", c);
+		goto exit0;
+	}
+
+	mp = mi->port[c];
+
+	vd->mp = (size_t)mp;
+
+	if(-1 == mhu_request_irq((void *)&vd->mp, mp, rxfn, txfn))
+		goto exit1;
+
+	return 0;
+
+exit1:
+	mi->port_used[c] = 0;
+
+exit0:
+	return -1;
+}
+EXPORT_SYMBOL_GPL(mhu_alloc_port);
+
+void mhu_free_port(struct vsci_device *vd)
+{
+	struct mhu_info *mi = &mhui;
+	struct mhu_port *mp = (struct mhu_port *)vd->mp;
+
+	mi->port_used[mp->port] = 0;
+
+	mhu_free_irq(mp);
+}
+EXPORT_SYMBOL_GPL(mhu_free_port);
+
+static int mhu_init_port(int num)
+{
+	struct mhu_info *mi = &mhui;
+	struct device *dev = &mi->dev;
+	struct device_node *dn = dev->of_node;
 	uint32_t arr[4] = {0};
 	union mhu_channel_info mci[3];
 	char pn[16];
+	struct mhu_port *mp = mi->port[num];
 
-	if(mi->ref_count >= mi->max_mhu_port) {
-		dev_err(dev, "no more MHU port available\n");
-		goto exit0;
-	}
-
-	mp = (struct mhu_port *)kzalloc(sizeof(struct mhu_port), GFP_KERNEL);
-
-	if(NULL == mp) {
-		dev_err(dev, "no mem for MHU port creation\n");
-		goto exit0;
-	}
-
-	c = mi->ref_count++;
-	
-	mp->port = c;
+	mp->port = num;
 
 	/*
 		The RX INTR, TX INTR, and CMD MHU channels are defined in the device tree.
-	
+
 		device tree definition:
 		1) Linux INTR(L-CORE -> B-CORE):
 			MSG, RTOS RX REQ -> Linux CORE0 --- For MHU port 0
@@ -272,11 +307,11 @@ struct mhu_port *mhu_alloc_port(void)
 		RTOS VSCI device 0 -- MHU port 0 (Binding)
 		RTOS VSCI device 1 -- MHU port 1 (Binding)
 	*/
-	sprintf(pn, "port-%d", c);
+	sprintf(pn, "port-%d", num);
 
 	if(of_property_read_u32_array(dn, pn, arr, 3)) {
-		dev_err(dev, "MHU port config read fail\n");
-		goto exit1;
+		dev_err(dev, "MHU %s config read fail for port %d\n", pn, num);
+		goto exit0;
 	}
 
 	mci[0].info = arr[0];
@@ -291,31 +326,17 @@ struct mhu_port *mhu_alloc_port(void)
 	mp->msg_irq_tx = &get_msg_channel(mci[1].c.channel)->rx;
 	mp->msg_cmd_send = &get_msg_channel(mci[2].c.channel)->tx;
 
-	c *= 2;
-	mp->irq_rx = mi->intr.irq[c];
-	mp->irq_tx = mi->intr.irq[c + 1];
-	mp->irqr_name = mi->intr.irqname[c];
-	mp->irqt_name = mi->intr.irqname[c + 1];
+	num *= 2;
+	mp->irq_rx = mi->intr.irq[num];
+	mp->irq_tx = mi->intr.irq[num + 1];
+	mp->irqr_name = mi->intr.irqname[num];
+	mp->irqt_name = mi->intr.irqname[num + 1];
 
-	return mp;
-
-exit1:
-	kfree(mp);
+	return 0;
 
 exit0:
-	return NULL;
+	return -1;
 }
-EXPORT_SYMBOL_GPL(mhu_alloc_port);
-
-void mhu_free_port(struct mhu_port *mp)
-{
-	struct mhu_info *mi = &mhui;
-
-	kfree(mp);
-
-	mi->ref_count--;
-}
-EXPORT_SYMBOL_GPL(mhu_free_port);
 
 static int mhu_probe(struct platform_device *pdev)
 {
@@ -323,7 +344,7 @@ static int mhu_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct device_node *dn = pdev->dev.of_node;
 	struct mhu_info *mi = &mhui;
-	int irq, i;
+	int irq, i, j;
 	void *mem;
 
 	mi->dev = *dev;
@@ -371,12 +392,12 @@ static int mhu_probe(struct platform_device *pdev)
 		irq = platform_get_irq_optional(pdev, i);
 
 		if(irq <= 0) {
-			mi->max_mhu_port = i >> 1;
+			mi->port_count = i >> 1;
 			break;
 		}
 
-		if(i >= INTR_COUNT) {
-			dev_err(dev, "MHU interrupt resources %d exceed %d\n", irq, INTR_COUNT);
+		if(i >= MHU_INTR_COUNT) {
+			dev_err(dev, "MHU interrupt resources %d exceed %d\n", irq, MHU_INTR_COUNT);
 			goto exit2;
 		}
 
@@ -407,15 +428,35 @@ static int mhu_probe(struct platform_device *pdev)
 	}
 
 	mi->shm_mapped = mem;
-	pr_info("MHU SHM base = 0x%zx, size = 0x%x\n", (size_t)mem, (int)mi->shm_size);
 
-	mi->ref_count = 0;
-	pr_info("MHU driver loaded\n");
+	// MHU port allocation
+	for(i = 0; i < mi->port_count; i++) {
+		mi->port[i] = (struct mhu_port *)kzalloc(sizeof(struct mhu_port), GFP_KERNEL);
+
+		if(NULL == mi->port[i]) {
+			dev_err(dev, "MHU port mem allocation fail for port %d\n", i);
+			i--;
+			goto exit4;
+		}
+
+		if(-1 == mhu_init_port(i))
+			goto exit4;
+
+		mi->port_used[i] = 0;
+	}
+
+	pr_info("MHU SHM base = 0x%zx(Linux VA), 0x%zx(Linux PA)\n", (size_t)mi->shm_mapped, (size_t)mi->shm_base);
+	pr_info("MHU SHM base = 0x%x(RTOS PA)\n", mi->shm_rtos_base);
+	pr_info("MHU SHM size = 0x%x\n", (int)mi->shm_size);	
+	pr_info("MHU driver loaded, supports %d port(s) in total\n", mi->port_count);
 
 	return 0;
 
-//exit4:
-//	iounmap(mi->shm_mapped);
+exit4:
+	for(j = i; j >= 0; j--)
+		kfree(mi->port[j]);
+
+	iounmap(mi->shm_mapped);
 
 exit3:
 	iounmap(mi->reg_mapped);
@@ -432,7 +473,11 @@ exit0:
 
 static int mhu_remove(struct platform_device *pdev)
 {
+	int i;
 	struct mhu_info *mi = &mhui;
+
+	for(i = mi->port_count - 1; i >= 0; i--)
+		kfree(mi->port[i]);
 
 	iounmap(mi->shm_mapped);
 	iounmap(mi->reg_mapped);
@@ -443,7 +488,7 @@ static int mhu_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static const char banner[] __initconst = "RZ/G2Lx MHU driver initialized";
+static const char banner[] __initconst = "Renesas MHU driver initialized";
 
 static const struct of_device_id of_mhu_match[] = {
 	{

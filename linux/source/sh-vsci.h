@@ -12,7 +12,7 @@
 #define VSCI_DEVICE_NUM_MAX		8 /* large enough for current MPU types */
 
 enum vsci_name {
-	DEV_VSCI0 = 0x01,
+	DEV_VSCI0 = 1,
 	DEV_VSCI1,
 	DEV_VSCI_MAX,
 	
@@ -70,8 +70,6 @@ struct shared_mem_info {
 
 #ifdef __linux__
 struct vsci_device {
-	int enabled; /* 0: disabled, not used. 1: open, being used */
-
 	int devname; /* vsci device name, DEV_VSCIxxx */
 
 	struct device *platdev;
@@ -79,12 +77,6 @@ struct vsci_device {
 	void *sciport;
 
 	size_t mp; /* struct mhu_port pointer */
-
-	/* 
-		using different vc base(physical) to distinguish VSCI device(for vsci probe in sh-sci.c),
-		like different SCI(F) physical base address for different SCI(F) devices
-	*/
-	size_t vc_base; /* vsci circ buf base, physical addr */
 
 	struct vsci_circ *vc; /* vsci circ buf base, virtual addr */
 };
@@ -120,7 +112,7 @@ enum vsci_br {
 	BR230400,		/* 0.00335015% */
 	BR460800,		/* 0.00335015% */
 	BR500000,		/* 0.0976562% */
-	BR576000,		/* 0.0135807% */
+	BR576000,		/* 0.135807% */
 	BR921600,		/* 0.00335015% */
 	BR1000000,		/* 0.0976562% */
 	BR1152000,		/* 0.135807% */
@@ -403,15 +395,15 @@ static inline uint32_t vreq_tx_end(void)
 
 
 #ifdef __linux__
-/*
-	For Linux 
-*/
-struct vsci_device *vsci_alloc_device(struct device *devp, void *sciport, int port_type, int port_num, vsci_cb rxfn, vsci_cb txfn);
-void vsci_free_device(struct vsci_device *vd);
-// int to enum
+int vsci_alloc_device(struct device *devp, struct vsci_device *vd, void *sciport, int port_type, int port_num, vsci_cb rxfn, vsci_cb txfn);
+
+size_t vsci_get_mapbase(int port_type, int port_num);
+
 enum vsci_br vsci_baud_enc(int baud);
 
 int vsci_send_cmd(struct vsci_device *vd, uint32_t cmd);
+
+void vsci_free_device(struct vsci_device *vd);
 #endif
 
 #endif

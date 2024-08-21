@@ -64,54 +64,55 @@ int vsci_send_cmd(struct vsci_device *vd, uint32_t cmd)
 	return mhu_send_msg(mp, cmd);
 }
 
-struct vsci_device *vsci_alloc_device(struct device *devp, void *sciport, int port_type, int port_num, vsci_cb rxfn, vsci_cb txfn)
+/*
+	generate a PA to fill the uart_port->mapbase.
+*/
+size_t vsci_get_mapbase(int port_type, int port_num)
 {
-	int vscin;
-	struct vsci_device *vd;
+	struct shared_mem_info *smi;
+	size_t pa;
+	int b = IS_VSCI_PORT(port_type) ? 0 : (DEV_VSCI_MAX - DEV_VSCI0);
+	
+	mhu_get_shm_base(&pa, NULL, NULL);
+
+	smi = (struct shared_mem_info *)pa;
+	return (size_t)&smi->vc[b + port_num];
+}
+
+int vsci_alloc_device(struct device *devp, struct vsci_device *vd, void *sciport, int port_type, int port_num, vsci_cb rxfn, vsci_cb txfn)
+{
+	int devname;
 	struct device *dev = (struct device *)devp;
 	struct shared_mem_info *smi;
 	struct mhu_port *mp;
 	size_t va, pa, offset;
 	uint32_t rtos_base;
 
-	vd = (struct vsci_device *)kzalloc(sizeof(struct vsci_device), GFP_KERNEL);
-
-	if(NULL == vd) {
-		dev_err(dev, "no memory for VSCI device allocation\n");
-		goto exit0;
-	}
-
-	mp = mhu_alloc_port();
-
-	if(NULL == mp)
-		goto exit1;
-
 	if(PORT_VSCI == port_type) {
-		vscin = DEV_VSCI0 + port_num;
+		devname = DEV_VSCI0 + port_num;
 
-		if(vscin >= DEV_VSCI_MAX) {
+		if(devname >= DEV_VSCI_MAX) {
 			dev_err(dev, "device num %d is invalid for SCI device\n", port_num);
-			goto exit2;
+			goto exit0;
 		}
 	} else if(PORT_VSCIF == port_type) {
-		vscin = DEV_VSCIF0 + port_num;
+		devname = DEV_VSCIF0 + port_num;
 
-		if(vscin >= DEV_VSCIF_MAX) {
+		if(devname >= DEV_VSCIF_MAX) {
 			dev_err(dev, "device num %d is invalid for SCIF device\n", port_num);
-			goto exit2;
+			goto exit0;
 		}
 	} else {
 		dev_err(dev, "invalid device type %d was found\n", port_type);
-		goto exit2;
+		goto exit0;
 	}
 
-	vd->mp = (size_t)mp;
+	if(-1 == mhu_alloc_port(vd, rxfn, txfn))
+		goto exit0;
 
-	if(-1 == mhu_get_shm_base(&pa, &va, &rtos_base))
-		goto exit2;
+	mp = (struct mhu_port *)vd->mp;
 
-	smi = (struct shared_mem_info *)pa;
-	vd->vc_base = (size_t)&smi->vc[mp->port];
+	mhu_get_shm_base(&pa, &va, &rtos_base);
 
 	smi = (struct shared_mem_info *)va;
 	vd->vc = &smi->vc[mp->port];
@@ -130,33 +131,18 @@ struct vsci_device *vsci_alloc_device(struct device *devp, void *sciport, int po
 	vd->vc->lcore.rbuf = rtos_base + (mp->port * VSCI_BUF_SIZE * 2);
 	vd->vc->lcore.tbuf = vd->vc->lcore.rbuf + VSCI_BUF_SIZE;
 
-	if(-1 == mhu_request_irq(&vd->mp, rxfn, txfn))
-		goto exit2;
-
-	vd->devname = vscin;
+	vd->devname = devname;
 	vd->platdev = devp;
 	vd->sciport = sciport;
 	
-	return vd;
-
-exit2:
-	mhu_free_port(mp);
-
-exit1:
-	kfree(vd);
+	return 0;
 
 exit0:
-	return NULL;
+	return -1;
 }
 
 void vsci_free_device(struct vsci_device *vd)
 {
-	struct mhu_port *mp = (struct mhu_port *)vd->mp;
-
-	mhu_free_irq(mp);
-
-	mhu_free_port(mp);
-
-	kfree(vd);
+	mhu_free_port(vd);
 }
 

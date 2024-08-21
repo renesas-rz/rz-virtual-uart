@@ -12,7 +12,7 @@ struct mhu_channel {
 };
 
 struct mhu_port {
-	int port; /* MHU port index, 0, 1 */
+	int port; /* MHU port index */
 	
 	int irq_rx;
 	int irq_tx;
@@ -20,6 +20,7 @@ struct mhu_port {
 	const char *irqt_name;
 	vsci_cb rxfn;
 	vsci_cb txfn;
+	void *arg;
 
 	struct mhu_channel *mch_irq_rx; /* MHU channel for IRQ RX */
 	struct mhu_channel *mch_irq_tx; /* MHU channel for IRQ TX */
@@ -30,15 +31,12 @@ struct mhu_port {
 	uint32_t *msg_cmd_send; /* MSG for cmd sending */
 };
 
-struct mhu_port *mhu_alloc_port(void);
-void mhu_free_port(struct mhu_port *mp);
+int mhu_alloc_port(struct vsci_device *vd, vsci_cb rxfn, vsci_cb txfn);
 
-int mhu_get_shm_base(size_t *pa, size_t *va, uint32_t *rtos_pa);
+void mhu_free_port(struct vsci_device *vd);
+
+void mhu_get_shm_base(size_t *pa, size_t *va, uint32_t *rtos_pa);
 
 int mhu_send_msg(struct mhu_port *mp, uint32_t msg);
-
-int mhu_request_irq(size_t *arg, vsci_cb rxfn, vsci_cb txfn);
-void mhu_free_irq(struct mhu_port *mp);
-
 #endif
 
