@@ -93,6 +93,7 @@ u-boot：
 2024.08.16
 Add RS-485 half-duplex communication support, controlled by device property "rs485-gpio".
 Add dynamic virtual UART device allocation support. Customer can enable many virtual UART devices in device tree, but only 2 of them can be opened at the same time.
+Fix the subcore rx-stop and device-close timming issue.
 
 2024.07.26
 Add support for 6.25Mbps and 1.5625Mbps baudrate(Error rate = 0).
