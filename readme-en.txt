@@ -11,8 +11,12 @@ Features:
  - SCIF can support the baudrate up to 10Mbps，8bit data format only, no parity support, 1 stop bit.
  - For supported baudrates, please refer to the 'enum vsci_br' definition inside file sh-vsci.h. This enum definition is used by kernel virtual 
    UART driver and CM33 firmware. Linux UART application should not use it.
+ - This solution will create the standard Linux UART devices(/dev/ttySCx). Linux UART app needs no modification, and no special library or API 
+   required.
 
 Note:
+ - The maximum devices CM33 core can manage equals the CA55 big core count. If using single-core RZ/G2L, only 1x SCIF or 1x SCI device can be 
+   managed by CM33 core.
  - Customer can choose the ports configurations based on their own hardware. Linux kernel side needs to be changed only(refer to this sample):
    - SCI x1 + SCIF x1
    - SCI x1 + SCI x1
@@ -20,11 +24,8 @@ Note:
    - SCI x1
    - SCIF x1
    (SCI = SCI0 ~ SCI1, SCIF = SCIF0 ~ SCIF4)
- - The maximum devices CM33 core can manage equals the CA55 big core count. If using single-core RZ/G2L, only 1x SCIF or 1x SCI device can be 
-   managed by CM33 core.
- - RZ/G2LC|UL MPUs based CIP Linux kernel can also refer to this sample to implement virtual UART soltion.
  - This solution has NO relation to the OpenAMP solution. Customer can reduce the default 128MB reserved DDR memory to 2MB, refer to wiki:
-   https://renesas.info/wiki/RZ-G/RZ-G2_BSP_MemoryMap, section 'Reduce reserved area for RZ/G2L SMARC board'.
+   https://jira-gasg.renesas.eu/confluence/display/REN/RZ+BSP+Porting+-+Memory+Map, section 'Reduce reserved area for RZ/G2L SMARC board'.
  - Due to the lack of support of 9bit UART data format in Linux kernel and GLibC, if customer wants to support 9bit data on SCI0 port please pass
    CS7 in Linux UART application instead. For 8bit data format, CS8 is used. SCIF ports can suport 8-bit data only.
  - Customer should load CM33 firmware and bring up CM33 core first inside u-boot. Then boot into Linux system.
@@ -90,7 +91,7 @@ u-boot：
   cm33/cm33.c：source file for cm33 command support(copy cm33.c to u-boot_src/cmd/)
 
 ------ HISTORY ------
-2024.08.16
+2024.08.21
 Add RS-485 half-duplex communication support, controlled by device property "rs485-gpio".
 Add dynamic virtual UART device allocation support. Customer can enable many virtual UART devices in device tree, but only 2 of them can be opened at the same time.
 Fix the subcore rx-stop and device-close timming issue.

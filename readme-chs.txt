@@ -11,8 +11,10 @@
  - SCI可以支持到1Mbps，8bit or 9bit data，无校验位，1停止位
  - SCIF可以支持到10Mbps，8bit data，无校验位，1停止位
  - 支持的波特率，参考sh-vsci.h vsci_br（这个enum定义是给虚拟串口驱动程序和CM33固件使用的，Linux应用程序不要引用）
+ - 本方案将创建标准Linux UART设备(/dev/ttySCx)，Linux UART应用程序通常不需要修改，也不需要使用特殊的库或者API。
 
 注意：
+ - CM33能管理的最大设备数量等于CA55大核数量。如果使用单核RZ/G2L，CM33只能支持1路SCIF或者1路SCIg设备。
  - 客户可以基于自己的硬件选择SCI SCIF端口组合，仅仅需要修改Linux kernel部分，参考现有补丁即可：
      - SCI x1 + SCIF x1
 	 - SCI x1 + SCI x1
@@ -20,10 +22,8 @@
 	 - SCI x1
 	 - SCIF x1
 	 (SCI0 ~ SCI1, SCIF0 ~ SCIF4)
- - CM33能管理的最大设备数量等于CA55大核数量。如果使用单核RZ/G2L，CM33只能支持1路SCIF或者1路SCIg设备。
- - RZ/G2LC|UL MPU基于VLP Linux kernel的系统，也可以参考这个例子实现虚拟串口方案。
  - 此方案，跟OpenAMP没有关系，默认的128MB保留DDR内存可以减少到2MB，参考wiki：
-  “Reduce reserved area for RZ/G2L SMARC board”，https://renesas.info/wiki/RZ-G/RZ-G2_BSP_MemoryMap
+  “Reduce reserved area for RZ/G2L SMARC board”章节，https://jira-gasg.renesas.eu/confluence/display/REN/RZ+BSP+Porting+-+Memory+Map
  - 由于gLibC和Linux kernel并不支持9bit data，配置SCI0 9bit数据时，需要传入CS7（kernel驱动会把CS7转换为9bit），8bit数据使用CS8。
    SCIF端口仅仅支持8bit数据。
  - CM33的固件（参考文件说明）需要首先在uboot下加载，然后再启动Linux kernel（可以从eMMC/SD/U盘/网络/串口等uboot支持的设备下载），例如：
@@ -87,7 +87,7 @@ u-boot：
   cm33/cm33.c：u-boot下需要添加的代码，复制到u-boot/cm33目录
 
 ------ HISTORY ------
-2024.08.16
+2024.08.21
 添加了RS-485半双工通信支持，设备树里面的"rs485-gpio"属性控制。
 虚拟串口设备动态申请，设备树里面可以开启多个虚拟串口设备，但是同时打开的不超过2个。
 解决了小核RX STOP或DEVICE CLOSE时序问题。
