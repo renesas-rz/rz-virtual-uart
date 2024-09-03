@@ -528,5 +528,5 @@ module_exit(mhu_exit);
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("platform:mhu");
 MODULE_AUTHOR("Gary");
-MODULE_DESCRIPTION("RZ/G2Lx MHU driver");
+MODULE_DESCRIPTION("RZ MPU MHU driver");
 

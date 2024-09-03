@@ -14,6 +14,7 @@
  - 本方案将创建标准Linux UART设备(/dev/ttySCx)，Linux UART应用程序通常不需要修改，也不需要使用特殊的库或者API。
 
 注意：
+ - 客户使用其他基于瑞萨VLP Linux 5.10 kernel修改过的kernel，也可以参考。
  - CM33能管理的最大设备数量等于CA55大核数量。如果使用单核RZ/G2L，CM33只能支持1路SCIF或者1路SCIg设备。
  - 客户可以基于自己的硬件选择SCI SCIF端口组合，仅仅需要修改Linux kernel部分，参考现有补丁即可：
      - SCI x1 + SCIF x1
@@ -64,7 +65,7 @@ bin：
   fip.bin：BL3（u-boot），binary format
   fip.srec：BL3（u-boot），SREC format
   Flashwriter.mot：Flashwriter for SCIF download mode
-  Image：通过了测试的kernel镜像
+  Image：通过了测试的kernel镜像（不支持RS-485）
   r9a07g044l2-smarc.dtb：kernel对应的设备树
   rzg2_initramfs.cpio.gz：ramdisk，可选，客户可以使用其他rootfs
     - bootargs="initrd=0x70000000,32M'，首先加载到0x70000000处
@@ -74,19 +75,27 @@ bin：
     vuart_sc.bin：CM33 secure code
     vuart_sv.bin：CM33 secure vector
 linux/source：
-  复制所有文件到kernel/drivers/tty/serial/
+  添加的驱动源码，复制所有文件到kernel/drivers/tty/serial/
 linux：
   rzg2l-vlp306-cip41-vuart.diff：VLP3.0.6 CIP41 kernel patch(git diff生成)
-    - 首先，make defconfig，再打这个补丁，然后进入kernel menuconfig界面，确保选中下面两项(*)：
+    - 确保事先执行过make defconfig
+	- 打这个补丁
+	- 执行kernel menuconfig，确保选中下面两项(*)：
         Device Drivers > Character devices > Serial drivers > Message Handling Unit support
         Device Drivers > Character devices > Serial drivers > SuperH SCI(F) serial port support
-      最后，编译kernel获得更新后的kernel和设备树镜像。
-    - 客户使用其他厂商基于VLP CIP Linux kernel修改过的kernel，也可以参考。
+    - 编译kernel和设备树，获得更新后的kernel和设备树镜像。
+  rzg2l-vlp306-cip41-vuart.rs485.diff：
+    - 补丁'rzg2l-vlp306-cip41-vuart.diff'基础上添加RS-485通信支持
+  说明：这两个补丁二选一。
 u-boot：
   u-boot.diff：u-boot下支持cm33命令的补丁
   cm33/cm33.c：u-boot下需要添加的代码，复制到u-boot/cm33目录
 
 ------ HISTORY ------
+2024.09.03
+重写了RS-485相关代码。
+准备了独立的RS-485支持补丁，针对同时需要虚拟串口和RS-485功能的客户。
+
 2024.08.21
 添加了RS-485半双工通信支持，设备树里面的"rs485-gpio"属性控制。
 虚拟串口设备动态申请，设备树里面可以开启多个虚拟串口设备，但是同时打开的不超过2个。

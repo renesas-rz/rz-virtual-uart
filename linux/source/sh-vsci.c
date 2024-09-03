@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- *	Renesas RZ/G2Lx MPU Virtual SCI/SCIF device driver.
+ *	Renesas RZ MPU Virtual SCI/SCIF device driver.
  *
  *	Copyright (C) 2024 Gary Yin
  */
