@@ -1,0 +1,20 @@
+diff --git a/plat/renesas/rz/common/plat_security.c b/plat/renesas/rz/common/plat_security.c
+index 5c575cd43..64d817aa2 100755
+--- a/plat/renesas/rz/common/plat_security.c
++++ b/plat/renesas/rz/common/plat_security.c
+@@ -134,6 +134,7 @@ static void bl2_security_setup(void)
+ #if IMAGE_BL31
+ static void bl31_security_setup(void)
+ {
++#if 0
+ 	const arm_tzc_regions_info_t msram_tzc_regions[] = {
+ #if TRUSTED_BOARD_BOOT
+ 		{ PLAT_AP_TZC_PROT_SRAM1_BASE, PLAT_AP_TZC_PROT_SRAM1_END,
+@@ -153,6 +154,7 @@ static void bl31_security_setup(void)
+ 	/* Additional settings for TZC-400 SRAM */
+ 	plat_tzc400_setup(RZG2L_TZC_MSRAM_BASE, &msram_tzc_regions[0]);
+ 	plat_tzc400_setup(RZG2L_TZC_ASRAM_BASE, &asram_tzc_regions[0]);
++#endif
+ }
+ #endif
+ 

@@ -87,11 +87,17 @@ linux：
   rzg2l-vlp306-cip41-vuart.rs485.diff：
     - 补丁'rzg2l-vlp306-cip41-vuart.diff'基础上添加RS-485通信支持
   说明：这两个补丁二选一。
+trusted-firmware：
+  rzg2l-trusted-firmware-tzc.diff：Trusted firmware补丁(git diff生成）
+  说明：如果使用Secure RZ/G2L且开启了Secure-Boot，才需要打这个补丁。
 u-boot：
   u-boot.diff：u-boot下支持cm33命令的补丁
   cm33/cm33.c：u-boot下需要添加的代码，复制到u-boot/cm33目录
 
 ------ HISTORY ------
+2024.09.12
+添加了Secure RZ/G2L的Secure-Boot模式支持
+
 2024.09.03
 重写了RS-485相关代码。
 准备了独立的RS-485支持补丁，针对同时需要虚拟串口和RS-485功能的客户。
