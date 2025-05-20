@@ -25,8 +25,8 @@
 	 (SCI0 ~ SCI1, SCIF0 ~ SCIF4)
  - 此方案，跟OpenAMP没有关系，默认的128MB保留DDR内存可以减少到2MB，参考wiki：
   “Reduce reserved area for RZ/G2L SMARC board”章节，https://jira-gasg.renesas.eu/confluence/display/REN/RZ+BSP+Porting+-+Memory+Map
- - 由于gLibC和Linux kernel并不支持9bit data，配置SCI0 9bit数据时，需要传入CS7（kernel驱动会把CS7转换为9bit），8bit数据使用CS8。
-   SCIF端口仅仅支持8bit数据。
+ - 由于gLibC和Linux kernel并不支持9bit data，配置SCI 9bit数据时，需要传入CS7（kernel驱动会把CS7转换为9bit），8bit数据使用CS8。
+   9bit数据帧使用2字节half-word存储，高7bit无效。SCIF端口仅仅支持8bit数据。
  - CM33的固件（参考文件说明）需要首先在uboot下加载，然后再启动Linux kernel（可以从eMMC/SD/U盘/网络/串口等uboot支持的设备下载），例如：
     - mmc dev 0
     - dcache off
@@ -47,16 +47,16 @@
     MHU resource IRQ 76 found, name = msg5-core1
     MHU resource IRQ 77 found, name = rsp3=core1
     MHU REG base = ..., size = ...
-	MHU SHM base = ...(Linux VA), ...(Linux PA)
-	MHU SHM base = ...(RTOS PA)
-	MHU SHM size = ...
-	MHU driver loaded, supports 2 port(s) in total
+    MHU SHM base = ...(Linux VA), ...(Linux PA)
+    MHU SHM base = ...(RTOS PA)
+    MHU SHM size = ...
+    MHU driver loaded, supports 2 port(s) in total
 	... ...
     soc:serial@0000: ttySC1 at MMIO ... (irq = 0, base_baud = 0) is a vsci
     soc:serial@0002: ttySC3 at MMIO ... (irq = 0, base_baud = 0) is a vscif
     ... ...
-    ttySC1就是/dev/ttySC1，对应SCI0，可达1Mbps
-    ttySC3就是/dev/ttySC3，对应SCIF2，可达10Mbps
+     - ttySC1就是/dev/ttySC1，对应SCI0，可达1Mbps
+     - ttySC3就是/dev/ttySC3，对应SCIF2，可达10Mbps
 
 文件说明：
 bin：
@@ -95,6 +95,18 @@ u-boot：
   cm33/cm33.c：u-boot下需要添加的代码，复制到u-boot/cm33目录
 
 ------ HISTORY ------
+2025.05.20
+添加了校验位支持(None, Odd, Even).
+更新了停止位支持(1个或2个停止位).
+添加了硬件流控支持(仅仅针对SCIF0/1/2).
+添加了波特率调整支持.
+  说明:
+   1) 仅仅针对高级客户. 具体细节请参考sh-vsci.h里面的BAUD_ADJUST_9600 ... 等宏定义.
+   2) 客户绝大部分情况下，不需要修改默认代码.
+CM33固件同步更新.
+添加了针对On-Chip SRAM的32位读写优化.
+其他细节优化.
+
 2024.09.12
 添加了Secure RZ/G2L的Secure-Boot模式支持
 

@@ -12,9 +12,9 @@
 #define VSCI_DEVICE_NUM_MAX		8 /* large enough for current MPU types */
 
 enum vsci_name {
-	DEV_VSCI0 = 1,
-	DEV_VSCI1,
-	DEV_VSCI_MAX,
+	DEV_VSCIG0 = 1,
+	DEV_VSCIG1,
+	DEV_VSCIG_MAX,
 	
 	DEV_VSCIF0, /* SCIF0 is often used by Linux side */
 	DEV_VSCIF1,
@@ -25,11 +25,11 @@ enum vsci_name {
 };
 
 #ifdef __linux__
-#define IS_VSCI_PORT(p)		(PORT_VSCI == (p))
+#define IS_VSCIG_PORT(p)		(PORT_VSCIG == (p))
 #define IS_VSCIF_PORT(p)	(PORT_VSCIF == (p))
 #endif
 
-#define IS_VSCI_DEV(d)		(((d) >= DEV_VSCI0) && ((d) < DEV_VSCI_MAX))
+#define IS_VSCIG_DEV(d)		(((d) >= DEV_VSCIG0) && ((d) < DEV_VSCIG_MAX))
 #define IS_VSCIF_DEV(d)		(((d) >= DEV_VSCIF0) && ((d) < DEV_VSCIF_MAX))
 
 typedef int (* vsci_cb)(uint32_t msg, void *arg);
@@ -88,6 +88,7 @@ enum vsci_cmd_set {
 		--- Linux -> RTOS command list ---
 	*/
 	VSCIC_OPEN = 1,
+	VSCIC_BAUD_ADJUST,
 	VSCIC_CONF,
 	VSCIC_START,
 	VSCIC_TXD_RDY,
@@ -143,6 +144,10 @@ enum vsci_br {
 								BAUD_SET_##b(sci, set);	\
 								break
 
+#define BRA(b)				case b:	\
+								vcmd = BAUD_ADJUST_##b();	\
+								break
+
 #define BAUD_OP(op)							\
 							op(9600);		\
 							op(19200);		\
@@ -174,7 +179,7 @@ enum vsci_br {
 
 
 /* all the cmd/req contain the opcode filed, the lowest 4 bits */
-#define GET_OPCODE(m)		((m) & 0x0f)
+#define VSCI_GET_OPCODE(m)	((m) & 0x0f)
 
 union vscic_open {
 	struct {
@@ -197,7 +202,85 @@ static inline uint32_t vcmd_open(uint32_t devname)
 	return o.d;
 }
 
+/*
+ * !!! NOTE !!!
+ * 1) This command is for advanced customer only.
+ * 2) Reason: Some UART device's baudrate is not very accurate and difficult to change.
+ * 3) This command sending function vsci_baud_adjust() in sh-vsci.c is commented out by default.
+ *  Because it is not needed in most cases.
+ *  Re-open the VSCI device and do not send this command, the VSCI device will use the preset(default) setting.
+ * 4) The macro(es) below are the preset(default) baudrate settings.
+ *  Customer can adjust the preset setting to fit for their UART device baudrate.
+*/
+#define BAUD_ADJUST_9600()				vcmd_baud_adjust(BR9600, 163, 129, 1, 0, 0, 0)
+#define BAUD_ADJUST_19200()				vcmd_baud_adjust(BR19200, 81, 129, 1, 0, 0, 0)
+#define BAUD_ADJUST_38400()				vcmd_baud_adjust(BR38400, 40, 129, 1, 0, 0, 0)
+#define BAUD_ADJUST_57600()				vcmd_baud_adjust(BR57600, 31, 151, 1, 0, 0, 0)
+#define BAUD_ADJUST_115200()			vcmd_baud_adjust(BR115200, 15, 151, 1, 0, 0, 0)
+#define BAUD_ADJUST_230400()			vcmd_baud_adjust(BR230400, 7, 151, 1, 0, 0, 0)
+#define BAUD_ADJUST_460800()			vcmd_baud_adjust(BR460800, 3, 151, 1, 0, 0, 0)
+#define BAUD_ADJUST_500000()			vcmd_baud_adjust(BR500000, 3, 164, 1, 0, 0, 0)
+#define BAUD_ADJUST_576000()			vcmd_baud_adjust(BR576000, 3, 189, 1, 0, 0, 0)
+#define BAUD_ADJUST_921600()			vcmd_baud_adjust(BR921600, 1, 151, 1, 0, 0, 0)
+#define BAUD_ADJUST_1000000()			vcmd_baud_adjust(BR1000000, 1, 164, 1, 0, 0, 0)
+#define BAUD_ADJUST_1152000()			vcmd_baud_adjust(BR1152000, 1, 189, 1, 0, 0, 0)
+#define BAUD_ADJUST_1500000()			vcmd_baud_adjust(BR1500000, 1, 246, 1, 0, 0, 0)
+#define BAUD_ADJUST_1562500()			vcmd_baud_adjust(BR1562500, 1, 255, 0, 0, 0, 0)
+#define BAUD_ADJUST_2000000()			vcmd_baud_adjust(BR2000000, 0, 164, 1, 0, 0, 0)
+#define BAUD_ADJUST_2500000()			vcmd_baud_adjust(BR2500000, 0, 205, 1, 0, 0, 0)
+#define BAUD_ADJUST_3000000()			vcmd_baud_adjust(BR3000000, 0, 246, 1, 0, 0, 0)
+#define BAUD_ADJUST_3125000()			vcmd_baud_adjust(BR3125000, 0, 255, 0, 0, 0, 0)
+#define BAUD_ADJUST_3500000()			vcmd_baud_adjust(BR3500000, 0, 144, 1, 1, 0, 0)
+#define BAUD_ADJUST_4000000()			vcmd_baud_adjust(BR4000000, 0, 164, 1, 1, 0, 0)
+#define BAUD_ADJUST_5000000()			vcmd_baud_adjust(BR5000000, 0, 205, 1, 1, 0, 0)
+#define BAUD_ADJUST_6000000()			vcmd_baud_adjust(BR6000000, 0, 246, 1, 1, 0, 0)
+#define BAUD_ADJUST_6250000()			vcmd_baud_adjust(BR6250000, 0, 255, 0, 1, 0, 0)
+#define BAUD_ADJUST_7000000()			vcmd_baud_adjust(BR7000000, 0, 144, 1, 1, 1, 0)
+#define BAUD_ADJUST_8000000()			vcmd_baud_adjust(BR8000000, 0, 164, 1, 1, 1, 0)
+#define BAUD_ADJUST_9000000()			vcmd_baud_adjust(BR9000000, 0, 185, 1, 1, 1, 0)
+#define BAUD_ADJUST_10000000()			vcmd_baud_adjust(BR10000000, 0, 205, 1, 1, 1, 0)
 
+union vscic_baud_adjust {
+	struct {
+		uint32_t opcode : 4;
+		uint32_t baud : 5; /* Baudrate, vsci_br type */
+		uint32_t BRR : 8; /* Register BRR */
+		uint32_t MDDR : 8; /* Register MDDR */
+		uint32_t BRME : 1; /* Register bit SEMR.BRME */
+		uint32_t BGDM : 1; /* Register bit SEMR.BGDM */
+		uint32_t ABCS0 : 1; /* Register bit SEMR.ABCS0 */
+		uint32_t CKS : 2; /* Register bits SMR.CKS */ 
+		uint32_t resv : 2;
+	}c;
+
+	uint32_t d;
+};
+
+static inline uint32_t vcmd_baud_adjust(enum vsci_br baud, uint32_t BRR, uint32_t MDDR, uint32_t BRME, uint32_t BGDM, uint32_t ABCS0, uint32_t CKS)
+{
+	union vscic_baud_adjust b;
+	
+	b.c.opcode = VSCIC_BAUD_ADJUST;
+	b.c.baud = baud;
+	b.c.BRR = BRR;
+	b.c.MDDR = MDDR;
+	b.c.BRME = BRME;
+	b.c.BGDM = BGDM;
+	b.c.ABCS0 = ABCS0;
+	b.c.CKS = CKS;
+	b.c.resv = 0;
+
+	return b.d;
+}
+
+enum {
+	VSCI_PARITY_OFF = 0,
+	VSCI_PARITY_ODD = 1,
+	VSCI_PARITY_EVEN = 2,
+
+	VSCI_HW_FLOWCTRL_OFF = 0,
+	VSCI_HW_FLOWCTRL_ON = 1
+};
 /*
 	Currently, support only 8/9 bit(VSCI), 8 bit(VSCIF)!!!
 	For VSCI 9bit, using CS7 in application code instead
@@ -205,25 +288,27 @@ static inline uint32_t vcmd_open(uint32_t devname)
 union vscic_conf {
 	struct {
 		uint32_t opcode : 4;
-		uint32_t baud : 5; /* vsci_baud_enc() */
-		uint32_t dbits : 4; /* SCIg: 8 = 8bit, 9 = 9bit. SCIF: 7 = 7bit, 8 = 8bit */
-		uint32_t parity : 2; /* 0 = none. 1 = ODD, 2 = EVEN */
+		uint32_t baud : 5; /* Baudrate, vsci_br type */
+		uint32_t dbits : 4; /* SCIg: 8 = 8bit, other = 9bit. SCIF: 8 = 8bit */
+		uint32_t parity : 2; /* VSCI_PARITY_XXX */
 		uint32_t sbits : 3; /* 1 = 1bit. 2 = 2bit */
-		uint32_t resv : 14;
+		uint32_t flow : 3; /* 1 = VSCI_HW_FLOWCTRL_XXX */
+		uint32_t resv : 11;
 	}c;
 
 	uint32_t d;
 };
 
-static inline uint32_t vcmd_conf(enum vsci_br br, uint32_t dbit, uint32_t par, uint32_t sbit)
+static inline uint32_t vcmd_conf(enum vsci_br baud, uint32_t dbit, uint32_t par, uint32_t sbit, uint32_t flow)
 {
 	union vscic_conf c;
 	
 	c.c.opcode = VSCIC_CONF;
-	c.c.baud = br;
+	c.c.baud = baud;
 	c.c.dbits = dbit;
 	c.c.parity = par;
 	c.c.sbits = sbit;
+	c.c.flow = flow;
 	c.c.resv = 0;
 
 	return c.d;
@@ -398,6 +483,8 @@ static inline uint32_t vreq_tx_end(void)
 int vsci_alloc_device(struct device *devp, struct vsci_device *vd, void *sciport, int port_type, int port_num, vsci_cb rxfn, vsci_cb txfn);
 
 size_t vsci_get_mapbase(int port_type, int port_num);
+
+int vsci_baud_adjust(struct vsci_device *vd, int baud);
 
 enum vsci_br vsci_baud_enc(int baud);
 

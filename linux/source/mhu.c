@@ -124,9 +124,7 @@ static irqreturn_t mhu_intr(int irq, void *arg)
 {
 	size_t paddr = *(size_t *)arg;
 	struct mhu_port *mp = (struct mhu_port *)paddr;
-	struct device *dev = &mhui.dev;
 	uint32_t msg;
-	int port = mp->port;
 
 	if(clear_mhu_msg_status(mp->mch_irq_rx)) {
 		msg = *mp->msg_irq_rx;
@@ -135,14 +133,10 @@ static irqreturn_t mhu_intr(int irq, void *arg)
 		msg = *mp->msg_irq_tx;
 		mp->txfn(msg, arg);
 	} else {
-		dev_err(dev, "%s: unhandled MHU IRQ %d for port %d\n", __func__, irq, port);
-		goto exit0;
+		/* mhu_ch->status may not set yet */
 	}
 
 	return IRQ_HANDLED;
-
-exit0:
-	return IRQ_NONE;
 }
 
 static int mhu_request_irq(void *arg, struct mhu_port *mp, vsci_cb rxfn, vsci_cb txfn)
@@ -196,6 +190,14 @@ static void mhu_free_irq(struct mhu_port *mp)
 }
 EXPORT_SYMBOL_GPL(mhu_get_shm_base);
 
+uint32_t mhu_get_shm_size(void)
+{
+	struct mhu_info *mi = &mhui;
+
+	return (uint32_t)mi->shm_size;	
+}
+ EXPORT_SYMBOL_GPL(mhu_get_shm_size);
+
  int mhu_send_msg(struct mhu_port *mp, uint32_t msg)
 {
 #define uDLY_CNT		50
@@ -227,6 +229,8 @@ EXPORT_SYMBOL_GPL(mhu_get_shm_base);
 }
 EXPORT_SYMBOL_GPL(mhu_send_msg);
 
+static DEFINE_MUTEX(mhu_port_lock);
+
 int mhu_alloc_port(struct vsci_device *vd, vsci_cb rxfn, vsci_cb txfn)
 {
 	int c;
@@ -234,12 +238,14 @@ int mhu_alloc_port(struct vsci_device *vd, vsci_cb rxfn, vsci_cb txfn)
 	struct device *dev = &mi->dev;
 	struct mhu_port *mp;
 
+	mutex_lock(&mhu_port_lock);
 	for(c = 0; c < mi->port_count; c++) {
 		if(0 == mi->port_used[c]) {
 			mi->port_used[c] = 1;
 			break;
 		}
 	}
+	mutex_unlock(&mhu_port_lock);
 
 	if(c == mi->port_count) {
 		dev_err(dev, "no more MHU port available, used %d port(s) in total\n", c);
@@ -407,6 +413,11 @@ static int mhu_probe(struct platform_device *pdev)
 
 		mi->intr.irq[i] = irq;
 		mi->intr.irqname[i] = res->name;
+	}
+
+	if(0 == mi->port_count) {
+		dev_err(dev, "No MHU port(s) found!\n");
+		goto exit2;
 	}
 
 	// Memory map

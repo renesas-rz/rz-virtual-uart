@@ -28,7 +28,8 @@ Note:
  - This solution has NO relation to the OpenAMP solution. Customer can reduce the default 128MB reserved DDR memory to 2MB, refer to wiki:
    https://jira-gasg.renesas.eu/confluence/display/REN/RZ+BSP+Porting+-+Memory+Map, section 'Reduce reserved area for RZ/G2L SMARC board'.
  - Due to the lack of support of 9bit UART data format in Linux kernel and GLibC, if customer wants to support 9bit data on SCI0 port please pass
-   CS7 in Linux UART application instead. For 8bit data format, CS8 is used. SCIF ports can suport 8-bit data only.
+   CS7 in Linux UART application instead. Each 9bit data is stored in 2-byte half-word, and the upper 7bit is invalid.For 8bit data format, CS8 is 
+   used. SCIF ports can suport 8-bit data only.
  - Customer should load CM33 firmware and bring up CM33 core first inside u-boot. Then boot into Linux system.
  - CM33 firmware loading and booting(Assume the CM33 firmware is located in VFAT partition 1, the 1st partition of eMMC):
    - mmc dev 0
@@ -49,16 +50,16 @@ Note:
     MHU resource IRQ 76 found, name = msg5-core1
     MHU resource IRQ 77 found, name = rsp3=core1
     MHU REG base = ..., size = ...
-	MHU SHM base = ...(Linux VA), ...(Linux PA)
-	MHU SHM base = ...(RTOS PA)
-	MHU SHM size = ...
-	MHU driver loaded, supports 2 port(s) in total
+    MHU SHM base = ...(Linux VA), ...(Linux PA)
+    MHU SHM base = ...(RTOS PA)
+    MHU SHM size = ...
+    MHU driver loaded, supports 2 port(s) in total
     ... ...
     soc:serial@0000: ttySC1 at MMIO ... (irq = 0, base_baud = 0) is a vsci
     soc:serial@0002: ttySC3 at MMIO ... (irq = 0, base_baud = 0) is a vscif
     ... ...
-	- ttySC1 is the device '/dev/ttySC1', SCI0, up to 1Mbps baudrate
-	- ttySC3 is the device '/dev/ttySC3', SCIF2, up to 10Mbps baudrate
+     - ttySC1 is the device '/dev/ttySC1', SCI0, up to 1Mbps baudrate
+     - ttySC3 is the device '/dev/ttySC3', SCIF2, up to 10Mbps baudrate
 
 
 File description:
@@ -99,6 +100,18 @@ u-boot：
   cm33/cm33.c：source file for cm33 command support(copy cm33.c to u-boot/cmd/)
 
 ------ HISTORY ------
+2025.05.20
+Add parity support(None, Odd, Even).
+Updated stop bit support(1 stop bit, 2 stop bits).
+Add hardware flow controll support(SCIF0/1/2 only).
+Add baudrate adjustment support.
+  Note:
+   1) This is for advanced customer only. Please refer to the BAUD_ADJUST_9600 ... macro(es) in sh-vsci.h for detail.
+   2) Customers should keep the default code unchanged at most cases.
+CM33 firmware updated accordingly.
+Add 32-bit access optimization for on-chip SRAM.
+Other optimizations.
+
 2024.09.12
 Add support for Secure-Boot on RZ/G2L w/ secure feature.
 

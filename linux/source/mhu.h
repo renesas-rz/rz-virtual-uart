@@ -37,6 +37,8 @@ void mhu_free_port(struct vsci_device *vd);
 
 void mhu_get_shm_base(size_t *pa, size_t *va, uint32_t *rtos_pa);
 
+uint32_t mhu_get_shm_size(void);
+
 int mhu_send_msg(struct mhu_port *mp, uint32_t msg);
 #endif
 

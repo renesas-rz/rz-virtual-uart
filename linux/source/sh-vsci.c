@@ -47,12 +47,31 @@
 #include "mhu.h"
 
 
-uint32_t vsci_baud_enc(int baud)
+int vsci_baud_adjust(struct vsci_device *vd, int baud)
+{
+#if 0
+	uint32_t vcmd;
+
+	switch(baud) {
+		BAUD_OP(BRA);
+		default:
+			pr_info("## error[%s]: unsupported baudrate %d found, no matched vsci-baud, BR9600 is used\n", __func__, baud);
+			vcmd = BAUD_ADJUST_9600();
+			break;
+	}
+	
+	vsci_send_cmd(vd, vcmd);
+#endif
+
+	return 0;
+}
+
+enum vsci_br vsci_baud_enc(int baud)
 {
 	switch(baud) {
 		BAUD_OP(BRE);
 		default:
-			pr_info("## error: unsupported baudrate %d found, no matched vsci-baud, BR9600 is used\n", baud);
+			pr_info("## error[%s]: unsupported baudrate %d found, no matched vsci-baud, BR9600 is used\n", __func__, baud);
 			return BR9600;
 	}
 }
@@ -71,7 +90,7 @@ size_t vsci_get_mapbase(int port_type, int port_num)
 {
 	struct shared_mem_info *smi;
 	size_t pa;
-	int b = IS_VSCI_PORT(port_type) ? 0 : (DEV_VSCI_MAX - DEV_VSCI0);
+	int b = IS_VSCIG_PORT(port_type) ? 0 : (DEV_VSCIG_MAX - DEV_VSCIG0);
 	
 	mhu_get_shm_base(&pa, NULL, NULL);
 
@@ -88,11 +107,11 @@ int vsci_alloc_device(struct device *devp, struct vsci_device *vd, void *sciport
 	size_t va, pa, offset;
 	uint32_t rtos_base;
 
-	if(PORT_VSCI == port_type) {
-		devname = DEV_VSCI0 + port_num;
+	if(PORT_VSCIG == port_type) {
+		devname = DEV_VSCIG0 + port_num;
 
-		if(devname >= DEV_VSCI_MAX) {
-			dev_err(dev, "device num %d is invalid for SCI device\n", port_num);
+		if(devname >= DEV_VSCIG_MAX) {
+			dev_err(dev, "device num %d is invalid for SCIG device\n", port_num);
 			goto exit0;
 		}
 	} else if(PORT_VSCIF == port_type) {
@@ -124,6 +143,11 @@ int vsci_alloc_device(struct device *devp, struct vsci_device *vd, void *sciport
 
 	va += offset;
 	rtos_base += (uint32_t)offset;
+
+	if((offset + (mp->port + 1) * VSCI_BUF_SIZE * 2) > mhu_get_shm_size()) {
+		dev_err(dev, "Can not allocate enough shared memory\n");
+		goto exit0;
+	}
 
 	vd->vc->bcore.rbuf = (uint64_t)va + (mp->port * VSCI_BUF_SIZE * 2);
 	vd->vc->bcore.tbuf = vd->vc->bcore.rbuf + VSCI_BUF_SIZE;

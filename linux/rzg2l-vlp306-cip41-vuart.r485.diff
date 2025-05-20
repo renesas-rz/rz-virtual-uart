@@ -92,7 +92,7 @@ index 2349bb97225d..cd06b507ea11 100644
  
  &pinctrl {
 diff --git a/arch/arm64/boot/dts/renesas/rzg2l-smarc.dtsi b/arch/arm64/boot/dts/renesas/rzg2l-smarc.dtsi
-index f542dba21139..3597137b0c2b 100644
+index f542dba21139..d190670c5967 100644
 --- a/arch/arm64/boot/dts/renesas/rzg2l-smarc.dtsi
 +++ b/arch/arm64/boot/dts/renesas/rzg2l-smarc.dtsi
 @@ -10,7 +10,8 @@
@@ -105,7 +105,7 @@ index f542dba21139..3597137b0c2b 100644
  		i2c3 = &i2c3;
  	};
  
-@@ -107,10 +108,41 @@ &scif2 {
+@@ -107,10 +108,43 @@ &scif2 {
  	pinctrl-names = "default";
  
  	uart-has-rtscts;
@@ -141,6 +141,8 @@ index f542dba21139..3597137b0c2b 100644
 +	pinctrl-names = "default";
 +
 +	port-num = <2>; /* SCIF2 */
++
++	rs485-gpio = <&pinctrl RZG2L_GPIO(48, 4) GPIO_ACTIVE_LOW>;
 +
 +	status = "okay";
 +};
@@ -197,11 +199,55 @@ index caf167f0c10a..f3e0c460106a 100644
  obj-$(CONFIG_SERIAL_CPM) += cpm_uart/
  obj-$(CONFIG_SERIAL_IMX) += imx.o
  obj-$(CONFIG_SERIAL_IMX_EARLYCON) += imx_earlycon.o
+diff --git a/drivers/tty/serial/serial_core.c b/drivers/tty/serial/serial_core.c
+index 40fff38588d4..903f3ba5e0f8 100644
+--- a/drivers/tty/serial/serial_core.c
++++ b/drivers/tty/serial/serial_core.c
+@@ -1467,6 +1467,16 @@ uart_ioctl(struct tty_struct *tty, unsigned int cmd, unsigned long arg)
+ 	if (ret != -ENOIOCTLCMD)
+ 		goto out;
+ 
++	switch(cmd) {
++		case TIOCSSWRTS:
++			uport = state->uart_port;
++			ret = uport->ops->swrts_ctl ? uport->ops->swrts_ctl(uport, arg) : 0;
++			goto out;
++
++		default:
++			break;
++	}
++
+ 	mutex_lock(&port->mutex);
+ 	uport = uart_port_check(state);
+ 
+@@ -2589,6 +2599,12 @@ static const struct tty_port_operations uart_port_ops = {
+ 	.shutdown	= uart_tty_port_shutdown,
+ };
+ 
++int is_serial_core_tty(struct tty_struct *tty)
++{
++	return ((tty->ops == &uart_ops) && tty->ops->ioctl(tty, TIOCSSWRTS, SWRTS_GET_I));
++}
++EXPORT_SYMBOL_GPL(is_serial_core_tty);
++
+ /**
+  *	uart_register_driver - register a driver with the uart core layer
+  *	@drv: low level driver structure
 diff --git a/drivers/tty/serial/sh-sci.c b/drivers/tty/serial/sh-sci.c
-index 2ef52974a121..eed9065b059f 100644
+index 2ef52974a121..2f81ed110a07 100644
 --- a/drivers/tty/serial/sh-sci.c
 +++ b/drivers/tty/serial/sh-sci.c
-@@ -58,6 +58,9 @@
+@@ -49,6 +49,9 @@
+ #include <linux/timer.h>
+ #include <linux/tty.h>
+ #include <linux/tty_flip.h>
++#include <linux/gpio.h>
++#include <linux/of_gpio.h>
++#include <linux/semaphore.h>
+ 
+ #ifdef CONFIG_SUPERH
+ #include <asm/sh_bios.h>
+@@ -58,6 +61,9 @@
  #include "serial_mctrl_gpio.h"
  #include "sh-sci.h"
  
@@ -211,7 +257,7 @@ index 2ef52974a121..eed9065b059f 100644
  /* Offsets into the sci_port->irqs array */
  enum {
  	SCIx_ERI_IRQ,
-@@ -115,6 +118,13 @@ struct sci_port_params {
+@@ -115,6 +121,15 @@ struct sci_port_params {
  	unsigned int error_clear;
  };
  
@@ -219,13 +265,15 @@ index 2ef52974a121..eed9065b059f 100644
 +	int port_type; /* PORT_VSCI or PORT_VSCIF */
 +	int port_num; /* SCI or SCIF port number(physical) */
 +	int tx_start; /* 0: VSCIx port is not working(TX). 1: VSCIx port is working(TX) */
++	int rs485_gpio;
++	struct semaphore rs485_sema;
 +	struct vsci_device vdev;
 +};
 +
  struct sci_port {
  	struct uart_port	port;
  
-@@ -160,6 +170,8 @@ struct sci_port {
+@@ -160,6 +175,8 @@ struct sci_port {
  
  	bool has_rtscts;
  	bool autorts;
@@ -234,7 +282,7 @@ index 2ef52974a121..eed9065b059f 100644
  };
  
  #define SCI_NPORTS CONFIG_SERIAL_SH_SCI_NR_UARTS
-@@ -541,6 +553,9 @@ static void sci_port_enable(struct sci_port *sci_port)
+@@ -541,6 +558,9 @@ static void sci_port_enable(struct sci_port *sci_port)
  
  	pm_runtime_get_sync(sci_port->port.dev);
  
@@ -244,7 +292,7 @@ index 2ef52974a121..eed9065b059f 100644
  	for (i = 0; i < SCI_NUM_CLKS; i++) {
  		clk_prepare_enable(sci_port->clks[i]);
  		sci_port->clk_rates[i] = clk_get_rate(sci_port->clks[i]);
-@@ -555,8 +570,10 @@ static void sci_port_disable(struct sci_port *sci_port)
+@@ -555,8 +575,10 @@ static void sci_port_disable(struct sci_port *sci_port)
  	if (!sci_port->port.dev)
  		return;
  
@@ -257,7 +305,7 @@ index 2ef52974a121..eed9065b059f 100644
  
  	pm_runtime_put_sync(sci_port->port.dev);
  }
-@@ -573,11 +590,111 @@ static inline unsigned long port_rx_irq_mask(struct uart_port *port)
+@@ -573,11 +595,111 @@ static inline unsigned long port_rx_irq_mask(struct uart_port *port)
  	return SCSCR_RIE | (to_sci_port(port)->cfg->scscr & SCSCR_REIE);
  }
  
@@ -369,7 +417,7 @@ index 2ef52974a121..eed9065b059f 100644
  #ifdef CONFIG_SERIAL_SH_SCI_DMA
  	if (port->type == PORT_SCIFA || port->type == PORT_SCIFB) {
  		u16 new, scr = serial_port_in(port, SCSCR);
-@@ -620,6 +737,17 @@ static void sci_start_tx(struct uart_port *port)
+@@ -620,6 +742,17 @@ static void sci_start_tx(struct uart_port *port)
  static void sci_stop_tx(struct uart_port *port)
  {
  	unsigned short ctrl;
@@ -387,7 +435,7 @@ index 2ef52974a121..eed9065b059f 100644
  
  	/* Clear TIE (Transmit Interrupt Enable) bit in SCSCR */
  	ctrl = serial_port_in(port, SCSCR);
-@@ -643,6 +771,17 @@ static void sci_stop_tx(struct uart_port *port)
+@@ -643,6 +776,17 @@ static void sci_stop_tx(struct uart_port *port)
  static void sci_start_rx(struct uart_port *port)
  {
  	unsigned short ctrl;
@@ -405,7 +453,7 @@ index 2ef52974a121..eed9065b059f 100644
  
  	ctrl = serial_port_in(port, SCSCR) | port_rx_irq_mask(port);
  
-@@ -655,6 +794,17 @@ static void sci_start_rx(struct uart_port *port)
+@@ -655,6 +799,17 @@ static void sci_start_rx(struct uart_port *port)
  static void sci_stop_rx(struct uart_port *port)
  {
  	unsigned short ctrl;
@@ -423,7 +471,7 @@ index 2ef52974a121..eed9065b059f 100644
  
  	ctrl = serial_port_in(port, SCSCR);
  
-@@ -1137,6 +1287,9 @@ static ssize_t rx_fifo_trigger_show(struct device *dev,
+@@ -1137,6 +1292,9 @@ static ssize_t rx_fifo_trigger_show(struct device *dev,
  	struct uart_port *port = dev_get_drvdata(dev);
  	struct sci_port *sci = to_sci_port(port);
  
@@ -433,7 +481,7 @@ index 2ef52974a121..eed9065b059f 100644
  	return sprintf(buf, "%d\n", sci->rx_trigger);
  }
  
-@@ -1149,6 +1302,9 @@ static ssize_t rx_fifo_trigger_store(struct device *dev,
+@@ -1149,6 +1307,9 @@ static ssize_t rx_fifo_trigger_store(struct device *dev,
  	int ret;
  	long r;
  
@@ -443,7 +491,7 @@ index 2ef52974a121..eed9065b059f 100644
  	ret = kstrtol(buf, 0, &r);
  	if (ret)
  		return ret;
-@@ -1170,6 +1326,9 @@ static ssize_t rx_fifo_timeout_show(struct device *dev,
+@@ -1170,6 +1331,9 @@ static ssize_t rx_fifo_timeout_show(struct device *dev,
  	struct sci_port *sci = to_sci_port(port);
  	int v;
  
@@ -453,7 +501,7 @@ index 2ef52974a121..eed9065b059f 100644
  	if (port->type == PORT_HSCIF)
  		v = sci->hscif_tot >> HSSCR_TOT_SHIFT;
  	else
-@@ -1188,6 +1347,9 @@ static ssize_t rx_fifo_timeout_store(struct device *dev,
+@@ -1188,6 +1352,9 @@ static ssize_t rx_fifo_timeout_store(struct device *dev,
  	int ret;
  	long r;
  
@@ -463,7 +511,7 @@ index 2ef52974a121..eed9065b059f 100644
  	ret = kstrtol(buf, 0, &r);
  	if (ret)
  		return ret;
-@@ -2056,10 +2218,72 @@ static void sci_free_irq(struct sci_port *port)
+@@ -2056,10 +2223,76 @@ static void sci_free_irq(struct sci_port *port)
  	}
  }
  
@@ -507,6 +555,10 @@ index 2ef52974a121..eed9065b059f 100644
 +		if(!uart_circ_empty(xmit)) {
 +			vsci_transmit(sp);
 +		} else {
++			if(gpio_is_valid(sp->vi->rs485_gpio)) {
++				gpio_set_value(sp->vi->rs485_gpio, 0); // RS-485 INPUT mode
++				up(&sp->vi->rs485_sema);
++			}
 +			sp->vi->tx_start = 0;
 +		}
 +
@@ -538,7 +590,7 @@ index 2ef52974a121..eed9065b059f 100644
  
  	return (status & SCxSR_TEND(port)) && !in_tx_fifo ? TIOCSER_TEMT : 0;
  }
-@@ -2120,6 +2344,9 @@ static void sci_set_mctrl(struct uart_port *port, unsigned int mctrl)
+@@ -2120,6 +2353,9 @@ static void sci_set_mctrl(struct uart_port *port, unsigned int mctrl)
  {
  	struct sci_port *s = to_sci_port(port);
  
@@ -548,7 +600,7 @@ index 2ef52974a121..eed9065b059f 100644
  	if (mctrl & TIOCM_LOOP) {
  		const struct plat_sci_reg *reg;
  
-@@ -2167,6 +2394,9 @@ static unsigned int sci_get_mctrl(struct uart_port *port)
+@@ -2167,6 +2403,9 @@ static unsigned int sci_get_mctrl(struct uart_port *port)
  	struct mctrl_gpios *gpios = s->gpios;
  	unsigned int mctrl = 0;
  
@@ -558,7 +610,7 @@ index 2ef52974a121..eed9065b059f 100644
  	mctrl_gpio_get(gpios, &mctrl);
  
  	/*
-@@ -2189,6 +2419,11 @@ static unsigned int sci_get_mctrl(struct uart_port *port)
+@@ -2189,6 +2428,11 @@ static unsigned int sci_get_mctrl(struct uart_port *port)
  
  static void sci_enable_ms(struct uart_port *port)
  {
@@ -570,7 +622,7 @@ index 2ef52974a121..eed9065b059f 100644
  	mctrl_gpio_enable_ms(to_sci_port(port)->gpios);
  }
  
-@@ -2196,6 +2431,10 @@ static void sci_break_ctl(struct uart_port *port, int break_state)
+@@ -2196,6 +2440,10 @@ static void sci_break_ctl(struct uart_port *port, int break_state)
  {
  	unsigned short scscr, scsptr;
  	unsigned long flags;
@@ -581,7 +633,7 @@ index 2ef52974a121..eed9065b059f 100644
  
  	/* check wheter the port has SCSPTR */
  	if (!sci_getreg(port, SCSPTR)->size) {
-@@ -2228,6 +2467,31 @@ static int sci_startup(struct uart_port *port)
+@@ -2228,6 +2476,36 @@ static int sci_startup(struct uart_port *port)
  	struct sci_port *s = to_sci_port(port);
  	int ret;
  
@@ -602,6 +654,11 @@ index 2ef52974a121..eed9065b059f 100644
 +
 +		s->vi->tx_start = 0;
 +
++		if(gpio_is_valid(s->vi->rs485_gpio)) {
++			gpio_set_value(s->vi->rs485_gpio, 0); // RS-485 INPUT mode
++			sema_init(&s->vi->rs485_sema, 0);
++		}
++
 +		vsci_send_cmd(
 +			&s->vi->vdev,
 +			vcmd_open(s->vi->vdev.devname)
@@ -613,7 +670,7 @@ index 2ef52974a121..eed9065b059f 100644
  	dev_dbg(port->dev, "%s(%d)\n", __func__, port->line);
  
  	sci_request_dma(port);
-@@ -2247,6 +2511,22 @@ static void sci_shutdown(struct uart_port *port)
+@@ -2247,6 +2525,22 @@ static void sci_shutdown(struct uart_port *port)
  	unsigned long flags;
  	u16 scr;
  
@@ -636,7 +693,7 @@ index 2ef52974a121..eed9065b059f 100644
  	dev_dbg(port->dev, "%s(%d)\n", __func__, port->line);
  
  	s->autorts = false;
-@@ -2410,6 +2690,9 @@ static void sci_reset(struct uart_port *port)
+@@ -2410,6 +2704,9 @@ static void sci_reset(struct uart_port *port)
  	unsigned int status;
  	struct sci_port *s = to_sci_port(port);
  
@@ -646,7 +703,7 @@ index 2ef52974a121..eed9065b059f 100644
  	serial_port_out(port, SCSCR, s->hscif_tot);	/* TE=0, RE=0, CKE1=0 */
  
  	reg = sci_getreg(port, SCFCR);
-@@ -2451,6 +2734,35 @@ static void sci_set_termios(struct uart_port *port, struct ktermios *termios,
+@@ -2451,6 +2748,35 @@ static void sci_set_termios(struct uart_port *port, struct ktermios *termios,
  	unsigned long max_freq = 0;
  	int best_clk = -1;
  	unsigned long flags;
@@ -682,7 +739,7 @@ index 2ef52974a121..eed9065b059f 100644
  
  	if ((termios->c_cflag & CSIZE) == CS7) {
  		smr_val |= SCSMR_CHR;
-@@ -2782,6 +3094,10 @@ static const char *sci_type(struct uart_port *port)
+@@ -2782,6 +3108,10 @@ static const char *sci_type(struct uart_port *port)
  		return "scifb";
  	case PORT_HSCIF:
  		return "hscif";
@@ -693,7 +750,7 @@ index 2ef52974a121..eed9065b059f 100644
  	}
  
  	return NULL;
-@@ -2819,6 +3135,9 @@ static void sci_release_port(struct uart_port *port)
+@@ -2819,6 +3149,9 @@ static void sci_release_port(struct uart_port *port)
  {
  	struct sci_port *sport = to_sci_port(port);
  
@@ -703,7 +760,7 @@ index 2ef52974a121..eed9065b059f 100644
  	if (port->dev->of_node || (port->flags & UPF_IOREMAP)) {
  		iounmap(port->membase);
  		port->membase = NULL;
-@@ -2833,6 +3152,9 @@ static int sci_request_port(struct uart_port *port)
+@@ -2833,6 +3166,9 @@ static int sci_request_port(struct uart_port *port)
  	struct sci_port *sport = to_sci_port(port);
  	int ret;
  
@@ -713,7 +770,66 @@ index 2ef52974a121..eed9065b059f 100644
  	res = request_mem_region(port->mapbase, sport->reg_size,
  				 dev_name(port->dev));
  	if (unlikely(res == NULL)) {
-@@ -3007,6 +3329,14 @@ static int sci_init_single(struct platform_device *dev,
+@@ -2868,6 +3204,50 @@ static int sci_verify_port(struct uart_port *port, struct serial_struct *ser)
+ 	return 0;
+ }
+ 
++static int vsci_swrts_ctl(struct uart_port *port, unsigned long arg)
++{
++	//struct circ_buf *xmit = &port->state->xmit;
++	struct sci_port *sport = to_sci_port(port);
++	int cmd, ret = 0;
++
++	/* for VSCI device only */
++	if(!sport->vi)
++		return 0;
++
++	cmd = arg & 0xff;
++
++	switch(cmd)
++	{
++		case SWRTS_GET_I: /* check rs485-sw-rts device */
++
++			return gpio_is_valid(sport->vi->rs485_gpio);
++
++		case SWRTS_SET_H:
++
++			gpio_set_value(sport->vi->rs485_gpio, 1);
++
++			break;
++
++		case SWRTS_SET_L:
++
++			/* Reset RTS GPIO to Low in SCIF TX Empty interrupt, not here */
++
++			if(down_interruptible(&sport->vi->rs485_sema)) {
++				ret = -ERESTART;
++				break;
++			}
++
++			break;
++
++		default:
++
++			dev_err(port->dev, "unsupported cmd 0x%lx for %s\n", arg, __func__);
++			return -EPERM;
++	}
++
++	return ret;
++}
++
+ static const struct uart_ops sci_uart_ops = {
+ 	.tx_empty	= sci_tx_empty,
+ 	.set_mctrl	= sci_set_mctrl,
+@@ -2891,6 +3271,7 @@ static const struct uart_ops sci_uart_ops = {
+ 	.poll_get_char	= sci_poll_get_char,
+ 	.poll_put_char	= sci_poll_put_char,
+ #endif
++	.swrts_ctl = vsci_swrts_ctl
+ };
+ 
+ static int sci_init_clocks(struct sci_port *sci_port, struct device *dev)
+@@ -3007,6 +3388,14 @@ static int sci_init_single(struct platform_device *dev,
  	port->line	= index;
  	port->has_sysrq = IS_ENABLED(CONFIG_SERIAL_SH_SCI_CONSOLE);
  
@@ -728,7 +844,7 @@ index 2ef52974a121..eed9065b059f 100644
  	res = platform_get_resource(dev, IORESOURCE_MEM, 0);
  	if (res == NULL)
  		return -ENOMEM;
-@@ -3118,6 +3448,9 @@ static int sci_init_single(struct platform_device *dev,
+@@ -3118,6 +3507,9 @@ static int sci_init_single(struct platform_device *dev,
  
  static void sci_cleanup_single(struct sci_port *port)
  {
@@ -738,7 +854,7 @@ index 2ef52974a121..eed9065b059f 100644
  	pm_runtime_disable(port->port.dev);
  }
  
-@@ -3346,6 +3679,12 @@ static const struct of_device_id of_sci_match[] = {
+@@ -3346,6 +3738,12 @@ static const struct of_device_id of_sci_match[] = {
  	}, {
  		.compatible = "renesas,sci",
  		.data = SCI_OF_DATA(PORT_SCI, SCIx_SCI_REGTYPE),
@@ -751,7 +867,7 @@ index 2ef52974a121..eed9065b059f 100644
  	}, {
  		/* Terminator */
  	},
-@@ -3416,6 +3755,24 @@ static struct plat_sci_port *sci_parse_dt(struct platform_device *pdev,
+@@ -3416,6 +3814,30 @@ static struct plat_sci_port *sci_parse_dt(struct platform_device *pdev,
  	sp->has_rtscts = of_property_read_bool(np, "uart-has-rtscts");
  	sp->rstc = rstc;
  
@@ -771,12 +887,18 @@ index 2ef52974a121..eed9065b059f 100644
 +		if(of_property_read_u32(np, "port-num", &sp->vi->port_num)) {
 +			return ERR_PTR(-EPERM);
 +		}
++
++		/* check RS-485 support, optional */
++		sp->vi->rs485_gpio = of_get_named_gpio(np, "rs485-gpio", 0);
++
++		if(gpio_is_valid(sp->vi->rs485_gpio))
++			gpio_direction_output(sp->vi->rs485_gpio, 0); // output LOW(RS-485 INPUT Mode) first
 +	}
 +
  	return p;
  }
  
-@@ -3451,9 +3808,11 @@ static int sci_probe_single(struct platform_device *dev,
+@@ -3451,9 +3873,11 @@ static int sci_probe_single(struct platform_device *dev,
  	if (ret)
  		return ret;
  
@@ -791,6 +913,97 @@ index 2ef52974a121..eed9065b059f 100644
  
  	if (sciport->has_rtscts) {
  		if (mctrl_gpio_to_gpiod(sciport->gpios, UART_GPIO_CTS) ||
+diff --git a/drivers/tty/tty_io.c b/drivers/tty/tty_io.c
+index 094e82a12d29..8ae76c1030df 100644
+--- a/drivers/tty/tty_io.c
++++ b/drivers/tty/tty_io.c
+@@ -515,6 +515,7 @@ static DEFINE_SPINLOCK(redirect_lock);
+ static struct file *redirect;
+ 
+ extern void tty_sysctl_init(void);
++extern int is_serial_core_tty(struct tty_struct *tty);
+ 
+ /**
+  *	tty_wakeup	-	request more data
+@@ -969,9 +970,12 @@ static inline ssize_t do_tty_write(
+ 	struct file *file,
+ 	struct iov_iter *from)
+ {
+-	size_t count = iov_iter_count(from);
++	size_t count = iov_iter_count(from), par;
+ 	ssize_t ret, written = 0;
+ 	unsigned int chunk;
++	int serial_core_tty;
++
++	serial_core_tty = is_serial_core_tty(tty);
+ 
+ 	ret = tty_write_lock(tty, file->f_flags & O_NDELAY);
+ 	if (ret < 0)
+@@ -1016,6 +1020,14 @@ static inline ssize_t do_tty_write(
+ 		tty->write_buf = buf_chunk;
+ 	}
+ 
++	if(serial_core_tty) {
++		par = count << 8;
++		if(tty->ops->ioctl(tty, TIOCSSWRTS, SWRTS_SET_H | par)) {
++			ret = -ERESTART;
++			goto out;
++		}
++	}
++
+ 	/* Do the write .. */
+ 	for (;;) {
+ 		size_t size = count;
+@@ -1046,6 +1058,14 @@ static inline ssize_t do_tty_write(
+ 			break;
+ 		cond_resched();
+ 	}
++
++	if(serial_core_tty) {
++		if(tty->ops->ioctl(tty, TIOCSSWRTS, SWRTS_SET_L)) {
++			ret = -ERESTART;
++			goto out;
++		}
++	}
++
+ 	if (written) {
+ 		tty_update_time(&file_inode(file)->i_mtime);
+ 		ret = written;
+diff --git a/include/linux/serial_core.h b/include/linux/serial_core.h
+index 6df4c3356ae6..e7be38e1bccd 100644
+--- a/include/linux/serial_core.h
++++ b/include/linux/serial_core.h
+@@ -80,6 +80,7 @@ struct uart_ops {
+ 	void		(*poll_put_char)(struct uart_port *, unsigned char);
+ 	int		(*poll_get_char)(struct uart_port *);
+ #endif
++	int		(*swrts_ctl)(struct uart_port *, unsigned long);
+ };
+ 
+ #define NO_POLL_CHAR		0x00ff0000
+diff --git a/include/uapi/asm-generic/ioctls.h b/include/uapi/asm-generic/ioctls.h
+index cdc9f4ca8c27..6dde21d68cff 100644
+--- a/include/uapi/asm-generic/ioctls.h
++++ b/include/uapi/asm-generic/ioctls.h
+@@ -106,6 +106,18 @@
+ # define FIOQSIZE	0x5460
+ #endif
+ 
++/*
++ * Add ioctl commands for software RS-485 RTS control
++ */
++#define TIOCSSWRTS	0x5500
++enum
++{
++	SWRTS_GET_I = 0, /* Get software RS-485 RTS device support info */
++	SWRTS_SET_H, /* Set RTS GPIO to HIGH */
++	SWRTS_SET_L /* Set RTS GPIO to LOW */
++};
++
++
+ /* Used for packet mode */
+ #define TIOCPKT_DATA		 0
+ #define TIOCPKT_FLUSHREAD	 1
 diff --git a/include/uapi/linux/serial_core.h b/include/uapi/linux/serial_core.h
 index 851b982f8c4b..6fa55a4e1c06 100644
 --- a/include/uapi/linux/serial_core.h
