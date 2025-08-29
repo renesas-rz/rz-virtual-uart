@@ -120,7 +120,7 @@ static __inline uint32_t clear_mhu_msg_status(struct mhu_channel *mch)
 	return status;
 }
 
-static irqreturn_t mhu_intr(int irq, void *arg)
+static irqreturn_t mhu_rx_intr(int irq, void *arg)
 {
 	size_t paddr = *(size_t *)arg;
 	struct mhu_port *mp = (struct mhu_port *)paddr;
@@ -129,7 +129,20 @@ static irqreturn_t mhu_intr(int irq, void *arg)
 	if(clear_mhu_msg_status(mp->mch_irq_rx)) {
 		msg = *mp->msg_irq_rx;
 		mp->rxfn(msg, arg);
-	} else if(clear_mhu_msg_status(mp->mch_irq_tx)) {
+	} else {
+		/* mhu_ch->status may not set yet */
+	}
+
+	return IRQ_HANDLED;
+}
+
+static irqreturn_t mhu_tx_intr(int irq, void *arg)
+{
+	size_t paddr = *(size_t *)arg;
+	struct mhu_port *mp = (struct mhu_port *)paddr;
+	uint32_t msg;
+
+	if(clear_mhu_msg_status(mp->mch_irq_tx)) {
 		msg = *mp->msg_irq_tx;
 		mp->txfn(msg, arg);
 	} else {
@@ -149,12 +162,12 @@ static int mhu_request_irq(void *arg, struct mhu_port *mp, vsci_cb rxfn, vsci_cb
 	mp->txfn = txfn;
 	mp->arg = arg;
 
-	if(request_irq(mp->irq_rx, mhu_intr, 0, mp->irqr_name, arg)) {
+	if(request_irq(mp->irq_rx, mhu_rx_intr, 0, mp->irqr_name, arg)) {
 		dev_err(dev, "%s: IRQ request for %s port %d  fail\n", __func__, mp->irqr_name, c);
 		goto exit0;
 	}
 
-	if(request_irq(mp->irq_tx, mhu_intr, 0, mp->irqt_name, arg)) {
+	if(request_irq(mp->irq_tx, mhu_tx_intr, 0, mp->irqt_name, arg)) {
 		dev_err(dev, "%s: IRQ request for %s port %d fail\n", __func__, mp->irqt_name, c);
 		goto exit1;
 	}

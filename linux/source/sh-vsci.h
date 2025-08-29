@@ -10,6 +10,7 @@
 ****************************************************************************/
 
 #define VSCI_DEVICE_NUM_MAX		8 /* large enough for current MPU types */
+#define VSCI_DRI_TMO			500 /* unit: us */
 
 enum vsci_name {
 	DEV_VSCIG0 = 1,
@@ -49,23 +50,10 @@ union rbuffer {
 	short w[VSCI_BUF_SIZE / 2];
 };
 
-struct vsci_circ {
-	struct {
-		uint64_t rbuf;
-		uint64_t tbuf;
-	}bcore; /* big core, 64-bit, Linux, VA */
-
-	struct {
-		uint32_t rbuf;
-		uint32_t tbuf;
-	}lcore; /* little core, 32-bit, RTOS, PA */
-};
-
 struct shared_mem_info {
 	uint32_t msg_buf[VSCI_DEVICE_NUM_MAX * 2]; /* Linux-RTOS MSG memory */
-	struct vsci_circ vc[VSCI_DEVICE_NUM_MAX]; /* VSCI device circ buffer pointers */
-	uint8_t reserved[16]; /* gap */
-	uint32_t circ_buffer[];
+	uint32_t reserve[256];
+	uint64_t circ_buffer[];
 };
 
 #ifdef __linux__
@@ -75,6 +63,9 @@ struct vsci_device {
 	struct device *platdev;
 
 	void *sciport;
+	
+	char *rbuf;
+	char *tbuf;
 
 	size_t mp; /* struct mhu_port pointer */
 

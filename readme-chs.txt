@@ -8,8 +8,8 @@
 支持接口/特性：
  - SCI0(P40_0 & P40_1, 1.8v)
  - SCIF2(P48_0 & P48_1, 3.3v)
- - SCI可以支持到1Mbps，8bit or 9bit data，无校验位，1停止位
- - SCIF可以支持到10Mbps，8bit data，无校验位，1停止位
+ - SCI可以支持到1Mbps，8bit or 9bit data
+ - SCIF可以支持到10Mbps，8bit data
  - 支持的波特率，参考sh-vsci.h vsci_br（这个enum定义是给虚拟串口驱动程序和CM33固件使用的，Linux应用程序不要引用）
  - 本方案将创建标准Linux UART设备(/dev/ttySCx)，Linux UART应用程序通常不需要修改，也不需要使用特殊的库或者API。
 
@@ -52,11 +52,15 @@
     MHU SHM size = ...
     MHU driver loaded, supports 2 port(s) in total
 	... ...
-    soc:serial@0000: ttySC1 at MMIO ... (irq = 0, base_baud = 0) is a vsci
+    soc:serial@0000: ttySC1 at MMIO ... (irq = 0, base_baud = 0) is a vscig
     soc:serial@0002: ttySC3 at MMIO ... (irq = 0, base_baud = 0) is a vscif
     ... ...
-     - ttySC1就是/dev/ttySC1，对应SCI0，可达1Mbps
+     - ttySC1就是/dev/ttySC1，对应SCIg0，可达1Mbps
      - ttySC3就是/dev/ttySC3，对应SCIF2，可达10Mbps
+ - 客户可以从应用程序中，通过下述读取串口相关属性命令来确认是VSCIF还是SCIF设备：
+    cat /sys/class/tty/ttySC3/device/rx_fifo_trigger
+     - VSCIF会报错，提示不允许操作
+     - SCIF不会报错，并打印出来当前的接收FIFO触发中断配置数值8
 
 文件说明：
 bin：
@@ -95,6 +99,10 @@ u-boot：
   cm33/cm33.c：u-boot下需要添加的代码，复制到u-boot/cm33目录
 
 ------ HISTORY ------
+2025.08.29
+添加了更多优化.
+移除了struct vsci_circ结构体.
+
 2025.05.20
 添加了校验位支持(None, Odd, Even).
 更新了停止位支持(1个或2个停止位).

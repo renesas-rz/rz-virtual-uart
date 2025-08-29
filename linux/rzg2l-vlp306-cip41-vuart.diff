@@ -48,7 +48,7 @@ index 80557ac31f5a..845db9e8fb7b 100644
  			compatible = "renesas,poeg-r9a07g044";
  			reg = <0 0x10048800 0 0x04>;
 diff --git a/arch/arm64/boot/dts/renesas/rzg2l-smarc-pinfunction.dtsi b/arch/arm64/boot/dts/renesas/rzg2l-smarc-pinfunction.dtsi
-index e0c929f35e1a..535897996f8c 100644
+index 8419e2f2dae8..3e470eab6c46 100644
 --- a/arch/arm64/boot/dts/renesas/rzg2l-smarc-pinfunction.dtsi
 +++ b/arch/arm64/boot/dts/renesas/rzg2l-smarc-pinfunction.dtsi
 @@ -90,6 +90,21 @@ scif2_pins: scif2 {
@@ -70,14 +70,14 @@ index e0c929f35e1a..535897996f8c 100644
 +			<RZG2L_PORT_PINMUX(40, 1, 5)>; /* TxD */
 +	};
 +
- 	sd1-pwr-en-hog {
- 		gpio-hog;
- 		gpios = <RZG2L_GPIO(39, 2) GPIO_ACTIVE_HIGH>;
+ 	sdhi1_pins: sd1 {
+ 		sd1_data {
+ 			pins = "SD1_DATA0", "SD1_DATA1", "SD1_DATA2", "SD1_DATA3";
 diff --git a/arch/arm64/boot/dts/renesas/rzg2l-smarc-som.dtsi b/arch/arm64/boot/dts/renesas/rzg2l-smarc-som.dtsi
-index 2349bb97225d..cd06b507ea11 100644
+index 833144914ec7..6f81dfcd500a 100644
 --- a/arch/arm64/boot/dts/renesas/rzg2l-smarc-som.dtsi
 +++ b/arch/arm64/boot/dts/renesas/rzg2l-smarc-som.dtsi
-@@ -195,11 +195,11 @@ raa215300: pmic@12 {
+@@ -196,11 +196,11 @@ raa215300: pmic@12 {
  };
  
  &ostm1 {
@@ -92,7 +92,7 @@ index 2349bb97225d..cd06b507ea11 100644
  
  &pinctrl {
 diff --git a/arch/arm64/boot/dts/renesas/rzg2l-smarc.dtsi b/arch/arm64/boot/dts/renesas/rzg2l-smarc.dtsi
-index f542dba21139..3597137b0c2b 100644
+index d546ade0834b..315659e2649c 100644
 --- a/arch/arm64/boot/dts/renesas/rzg2l-smarc.dtsi
 +++ b/arch/arm64/boot/dts/renesas/rzg2l-smarc.dtsi
 @@ -10,7 +10,8 @@
@@ -165,7 +165,7 @@ index c21efb04634e..fe313dbe2519 100644
  
  #ifdef CONFIG_CLK_R9A07G044
 diff --git a/drivers/tty/serial/Kconfig b/drivers/tty/serial/Kconfig
-index 28f22e58639c..7d301f7daf12 100644
+index 28f22e58639c..1f9b2a5b542e 100644
 --- a/drivers/tty/serial/Kconfig
 +++ b/drivers/tty/serial/Kconfig
 @@ -670,9 +670,13 @@ config SERIAL_IP22_ZILOG_CONSOLE
@@ -174,7 +174,7 @@ index 28f22e58639c..7d301f7daf12 100644
  
 +config MHU
 +	bool "Message Handling Unit support"
-+	default n
++	default y
 +
  config SERIAL_SH_SCI
  	tristate "SuperH SCI(F) serial port support"
@@ -198,7 +198,7 @@ index caf167f0c10a..f3e0c460106a 100644
  obj-$(CONFIG_SERIAL_IMX) += imx.o
  obj-$(CONFIG_SERIAL_IMX_EARLYCON) += imx_earlycon.o
 diff --git a/drivers/tty/serial/sh-sci.c b/drivers/tty/serial/sh-sci.c
-index 2ef52974a121..eed9065b059f 100644
+index 2ef52974a121..20b99b82b610 100644
 --- a/drivers/tty/serial/sh-sci.c
 +++ b/drivers/tty/serial/sh-sci.c
 @@ -58,6 +58,9 @@
@@ -267,17 +267,17 @@ index 2ef52974a121..eed9065b059f 100644
 +	struct tty_port *tport = &port->state->port;
 +	struct vsci_device *vd = &sp->vi->vdev;
 +	unsigned char *pb;
-+	uint32_t *buf, val;
++	uint64_t *buf, val;
 +	int count, c;
 +
-+	pb = (unsigned char *)vd->vc->bcore.rbuf;
++	pb = (unsigned char *)vd->rbuf;
 +
 +	if(bytes > (VSCI_BUF_SIZE / 2)) {
 +		pb += VSCI_BUF_SIZE / 2;
 +		bytes -= VSCI_BUF_SIZE / 2;
 +	}
 +
-+	buf = (uint32_t *)pb;
++	buf = (uint64_t *)pb;
 +
 +	count = bytes;
 +
@@ -285,7 +285,7 @@ index 2ef52974a121..eed9065b059f 100644
 +
 +		val = *buf++;
 +		pb = (unsigned char *)&val;
-+		c = (bytes >= 4) ? 4 : bytes;
++		c = (bytes >= 8) ? 8 : bytes;
 +		bytes -= c;
 +
 +		while(c) {
@@ -316,9 +316,9 @@ index 2ef52974a121..eed9065b059f 100644
 +	struct vsci_device *vd = &sp->vi->vdev;
 +	unsigned char *pb;
 +	int bytes, count;
-+	uint32_t *buf, val, c;
++	uint64_t *buf, val, c;
 +
-+	buf = (uint32_t *)vd->vc->bcore.tbuf;
++	buf = (uint64_t *)vd->tbuf;
 +	count = uart_circ_chars_pending(xmit);
 +	bytes = (count >= VSCI_BUF_SIZE) ? VSCI_BUF_SIZE : count;
 +	count = bytes;
@@ -327,7 +327,7 @@ index 2ef52974a121..eed9065b059f 100644
 +
 +		val = 0;
 +		pb = (unsigned char *)&val;
-+		c = (bytes >= 4) ? 4 : bytes;
++		c = (bytes >= 8) ? 8 : bytes;
 +		bytes -= c;
 +
 +		while(c) {

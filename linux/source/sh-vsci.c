@@ -88,14 +88,13 @@ int vsci_send_cmd(struct vsci_device *vd, uint32_t cmd)
 */
 size_t vsci_get_mapbase(int port_type, int port_num)
 {
-	struct shared_mem_info *smi;
 	size_t pa;
-	int b = IS_VSCIG_PORT(port_type) ? 0 : (DEV_VSCIG_MAX - DEV_VSCIG0);
-	
+	int b = IS_VSCIG_PORT(port_type) ? DEV_VSCIG0 : DEV_VSCIF0;
+	size_t offset = offsetof(struct shared_mem_info, reserve);
+
 	mhu_get_shm_base(&pa, NULL, NULL);
 
-	smi = (struct shared_mem_info *)pa;
-	return (size_t)&smi->vc[b + port_num];
+	return pa + offset + 0x20 * (b + port_num);
 }
 
 int vsci_alloc_device(struct device *devp, struct vsci_device *vd, void *sciport, int port_type, int port_num, vsci_cb rxfn, vsci_cb txfn)
@@ -104,8 +103,7 @@ int vsci_alloc_device(struct device *devp, struct vsci_device *vd, void *sciport
 	struct device *dev = (struct device *)devp;
 	struct shared_mem_info *smi;
 	struct mhu_port *mp;
-	size_t va, pa, offset;
-	uint32_t rtos_base;
+	size_t va, offset;
 
 	if(PORT_VSCIG == port_type) {
 		devname = DEV_VSCIG0 + port_num;
@@ -131,10 +129,9 @@ int vsci_alloc_device(struct device *devp, struct vsci_device *vd, void *sciport
 
 	mp = (struct mhu_port *)vd->mp;
 
-	mhu_get_shm_base(&pa, &va, &rtos_base);
+	mhu_get_shm_base(NULL, &va, NULL);
 
 	smi = (struct shared_mem_info *)va;
-	vd->vc = &smi->vc[mp->port];
 
 	/*
 		install RX/TX circ buffer pointers(Linux, RTOS)
@@ -142,22 +139,18 @@ int vsci_alloc_device(struct device *devp, struct vsci_device *vd, void *sciport
 	offset = offsetof(struct shared_mem_info, circ_buffer);
 
 	va += offset;
-	rtos_base += (uint32_t)offset;
 
 	if((offset + (mp->port + 1) * VSCI_BUF_SIZE * 2) > mhu_get_shm_size()) {
 		dev_err(dev, "Can not allocate enough shared memory\n");
 		goto exit0;
 	}
 
-	vd->vc->bcore.rbuf = (uint64_t)va + (mp->port * VSCI_BUF_SIZE * 2);
-	vd->vc->bcore.tbuf = vd->vc->bcore.rbuf + VSCI_BUF_SIZE;
-
-	vd->vc->lcore.rbuf = rtos_base + (mp->port * VSCI_BUF_SIZE * 2);
-	vd->vc->lcore.tbuf = vd->vc->lcore.rbuf + VSCI_BUF_SIZE;
-
 	vd->devname = devname;
 	vd->platdev = devp;
 	vd->sciport = sciport;
+
+	vd->rbuf = (char *)va + (mp->port * VSCI_BUF_SIZE * 2);
+	vd->tbuf = vd->rbuf + VSCI_BUF_SIZE;
 	
 	return 0;
 

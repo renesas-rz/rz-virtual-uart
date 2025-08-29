@@ -7,8 +7,8 @@ any bug, please contact Renesas window person.
 
 Features:
  - Two ports are supported: SCI0(P40_0 & P40_1, 1.8v) + SCIF2(P48_0 & P48_1, 3.3v, inside PMOD1). SCI0 signals are not exported originally.
- - SCI can support the baudrate up to 1Mbps，8bit or 9bit data format, no parity support, 1 stop bit.
- - SCIF can support the baudrate up to 10Mbps，8bit data format only, no parity support, 1 stop bit.
+ - SCI can support the baudrate up to 1Mbps，8bit or 9bit data format.
+ - SCIF can support the baudrate up to 10Mbps，8bit data format only.
  - For supported baudrates, please refer to the 'enum vsci_br' definition inside file sh-vsci.h. This enum definition is used by kernel virtual 
    UART driver and CM33 firmware. Linux UART application should not use it.
  - This solution will create the standard Linux UART devices(/dev/ttySCx). Linux UART app needs no modification, and no special library or API 
@@ -55,12 +55,15 @@ Note:
     MHU SHM size = ...
     MHU driver loaded, supports 2 port(s) in total
     ... ...
-    soc:serial@0000: ttySC1 at MMIO ... (irq = 0, base_baud = 0) is a vsci
+    soc:serial@0000: ttySC1 at MMIO ... (irq = 0, base_baud = 0) is a vscig
     soc:serial@0002: ttySC3 at MMIO ... (irq = 0, base_baud = 0) is a vscif
     ... ...
-     - ttySC1 is the device '/dev/ttySC1', SCI0, up to 1Mbps baudrate
-     - ttySC3 is the device '/dev/ttySC3', SCIF2, up to 10Mbps baudrate
-
+     - ttySC1 is the device '/dev/ttySC1', SCIg0 port, up to 1Mbps baudrate
+     - ttySC3 is the device '/dev/ttySC3', SCIF2 port, up to 10Mbps baudrate
+ - Customer can distinguish it is a VSCIF or SCIF device by using command:
+    cat /sys/class/tty/ttySC3/device/rx_fifo_trigger
+     - For VSCIF device, it will report error: Operation not permitted
+     - For SCIF device, it will not report error, but the current RX FIFO trigger setting '8'
 
 File description:
 bin：
@@ -100,6 +103,10 @@ u-boot：
   cm33/cm33.c：source file for cm33 command support(copy cm33.c to u-boot/cmd/)
 
 ------ HISTORY ------
+2025.08.29
+Add more optimizations.
+Removed the 'struct vsci_circ'.
+
 2025.05.20
 Add parity support(None, Odd, Even).
 Updated stop bit support(1 stop bit, 2 stop bits).
