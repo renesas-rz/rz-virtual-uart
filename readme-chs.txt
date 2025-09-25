@@ -74,10 +74,10 @@ bin：
   rzg2_initramfs.cpio.gz：ramdisk，可选，客户可以使用其他rootfs
     - bootargs="initrd=0x70000000,32M'，首先加载到0x70000000处
   CM33固件：
-    vuart_nc.bin：CM33 non-secure code
-    vuart_nv.bin：CM33 non-secure vector
-    vuart_sc.bin：CM33 secure code
-    vuart_sv.bin：CM33 secure vector
+    vuart-nc.bin：CM33 non-secure code
+    vuart-nv.bin：CM33 non-secure vector
+    vuart-sc.bin：CM33 secure code
+    vuart-sv.bin：CM33 secure vector
 linux/source：
   添加的驱动源码，复制所有文件到kernel/drivers/tty/serial/
 linux：

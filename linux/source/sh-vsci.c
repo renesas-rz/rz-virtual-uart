@@ -101,7 +101,6 @@ int vsci_alloc_device(struct device *devp, struct vsci_device *vd, void *sciport
 {
 	int devname;
 	struct device *dev = (struct device *)devp;
-	struct shared_mem_info *smi;
 	struct mhu_port *mp;
 	size_t va, offset;
 
@@ -130,8 +129,6 @@ int vsci_alloc_device(struct device *devp, struct vsci_device *vd, void *sciport
 	mp = (struct mhu_port *)vd->mp;
 
 	mhu_get_shm_base(NULL, &va, NULL);
-
-	smi = (struct shared_mem_info *)va;
 
 	/*
 		install RX/TX circ buffer pointers(Linux, RTOS)

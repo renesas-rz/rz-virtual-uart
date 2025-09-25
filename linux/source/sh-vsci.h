@@ -68,8 +68,6 @@ struct vsci_device {
 	char *tbuf;
 
 	size_t mp; /* struct mhu_port pointer */
-
-	struct vsci_circ *vc; /* vsci circ buf base, virtual addr */
 };
 #endif
 

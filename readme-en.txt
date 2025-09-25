@@ -77,10 +77,10 @@ bin：
   rzg2_initramfs.cpio.gz：ramdisk, optional. Customer can choose other rootfs.
     - bootargs="initrd=0x70000000,32M' for uboot. Load to 0x70000000 first.
   CM33 firmware:
-    vuart_nc.bin：CM33 non-secure code
-    vuart_nv.bin：CM33 non-secure vector
-    vuart_sc.bin：CM33 secure code
-    vuart_sv.bin：CM33 secure vector
+    vuart-nc.bin：CM33 non-secure code
+    vuart-nv.bin：CM33 non-secure vector
+    vuart-sc.bin：CM33 secure code
+    vuart-sv.bin：CM33 secure vector
 linux/source：
   Added driver source code(copy all files to kernel/drivers/tty/serial/)
 linux：
