@@ -105,6 +105,11 @@ u-boot：
   cm33/cm33.c：source file for cm33 command support(copy cm33.c to u-boot/cmd/)
 
 ------ HISTORY ------
+2025.10.09
+Add UART app baud setting sample code.
+Rename subcore firmware name(vuart_*.bin -> vuart-*.bin).
+Other optimization.
+
 2025.08.29
 Add more optimizations.
 Removed the 'struct vsci_circ'.

@@ -101,6 +101,11 @@ u-boot：
   cm33/cm33.c：u-boot下需要添加的代码，复制到u-boot/cm33目录
 
 ------ HISTORY ------
+2025.10.09
+添加了UART app波特率设置参考代码.
+小核固件名称修改（vuart_*.bin -> vuart-*.bin）.
+其他优化.
+
 2025.08.29
 添加了更多优化.
 移除了struct vsci_circ结构体.
