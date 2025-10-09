@@ -198,7 +198,7 @@ index caf167f0c10a..f3e0c460106a 100644
  obj-$(CONFIG_SERIAL_IMX) += imx.o
  obj-$(CONFIG_SERIAL_IMX_EARLYCON) += imx_earlycon.o
 diff --git a/drivers/tty/serial/sh-sci.c b/drivers/tty/serial/sh-sci.c
-index 2ef52974a121..20b99b82b610 100644
+index 2ef52974a121..053926c13d8f 100644
 --- a/drivers/tty/serial/sh-sci.c
 +++ b/drivers/tty/serial/sh-sci.c
 @@ -58,6 +58,9 @@
@@ -776,7 +776,7 @@ index 2ef52974a121..20b99b82b610 100644
  	return p;
  }
  
-@@ -3451,9 +3808,11 @@ static int sci_probe_single(struct platform_device *dev,
+@@ -3451,17 +3808,19 @@ static int sci_probe_single(struct platform_device *dev,
  	if (ret)
  		return ret;
  
@@ -787,10 +787,24 @@ index 2ef52974a121..20b99b82b610 100644
 +		sciport->gpios = mctrl_gpio_init(&sciport->port, 0);
 +		if (IS_ERR(sciport->gpios))
 +			return PTR_ERR(sciport->gpios);
-+	}
  
- 	if (sciport->has_rtscts) {
- 		if (mctrl_gpio_to_gpiod(sciport->gpios, UART_GPIO_CTS) ||
+-	if (sciport->has_rtscts) {
+-		if (mctrl_gpio_to_gpiod(sciport->gpios, UART_GPIO_CTS) ||
+-		    mctrl_gpio_to_gpiod(sciport->gpios, UART_GPIO_RTS)) {
+-			dev_err(&dev->dev, "Conflicting RTS/CTS config\n");
+-			return -EINVAL;
++		if (sciport->has_rtscts) {
++			if (mctrl_gpio_to_gpiod(sciport->gpios, UART_GPIO_CTS) ||
++			    mctrl_gpio_to_gpiod(sciport->gpios, UART_GPIO_RTS)) {
++				dev_err(&dev->dev, "Conflicting RTS/CTS config\n");
++				return -EINVAL;
++			}
++			sciport->port.flags |= UPF_HARD_FLOW;
+ 		}
+-		sciport->port.flags |= UPF_HARD_FLOW;
+ 	}
+ 
+ 	ret = uart_add_one_port(&sci_uart_driver, &sciport->port);
 diff --git a/include/uapi/linux/serial_core.h b/include/uapi/linux/serial_core.h
 index 851b982f8c4b..6fa55a4e1c06 100644
 --- a/include/uapi/linux/serial_core.h

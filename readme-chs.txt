@@ -63,6 +63,8 @@
      - SCIF不会报错，并打印出来当前的接收FIFO触发中断配置数值8
 
 文件说明：
+app：
+  uart-baud-setting.cpp：UART应用程序波特率设置参考代码，包括标准和非标准波特率设置。
 bin：
   bl2_bp.bin：Trusted-firmware，binary format
   bl2_bp.srec：Trusted-firmware，SREC format

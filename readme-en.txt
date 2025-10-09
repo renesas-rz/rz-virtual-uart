@@ -66,6 +66,8 @@ Note:
      - For SCIF device, it will not report error, but the current RX FIFO trigger setting '8'
 
 File description:
+app：
+	uart-baud-setting.cpp：UART application baud-rate setting reference code. Standard and non-standard baud-rates are included.
 bin：
   bl2_bp.bin：Trusted-firmware，binary format
   bl2_bp.srec：Trusted-firmware，SREC format
