@@ -26,7 +26,7 @@ Note:
    - SCIF x1
    (SCI = SCI0 ~ SCI1, SCIF = SCIF0 ~ SCIF4)
  - This solution has NO relation to the OpenAMP solution. Customer can reduce the default 128MB reserved DDR memory to 2MB, refer to wiki:
-   https://jira-gasg.renesas.eu/confluence/display/REN/RZ+BSP+Porting+-+Memory+Map, section 'Reduce reserved area for RZ/G2L SMARC board'.
+   https://renesas-wiki.atlassian.net/wiki/spaces/REN/pages/1018061/RZ+BSP+Porting+-+Memory+Map, section 'Reduce reserved area for RZ/G2L SMARC board'.
  - Due to the lack of support of 9bit UART data format in Linux kernel and GLibC, if customer wants to support 9bit data on SCI0 port please pass
    CS7 in Linux UART application instead. Each 9bit data is stored in 2-byte half-word, and the upper 7bit is invalid.For 8bit data format, CS8 is 
    used. SCIF ports can suport 8-bit data only.

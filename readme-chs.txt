@@ -24,7 +24,7 @@
 	 - SCIF x1
 	 (SCI0 ~ SCI1, SCIF0 ~ SCIF4)
  - 此方案，跟OpenAMP没有关系，默认的128MB保留DDR内存可以减少到2MB，参考wiki：
-  “Reduce reserved area for RZ/G2L SMARC board”章节，https://jira-gasg.renesas.eu/confluence/display/REN/RZ+BSP+Porting+-+Memory+Map
+  “Reduce reserved area for RZ/G2L SMARC board”章节，https://renesas-wiki.atlassian.net/wiki/spaces/REN/pages/1018061/RZ+BSP+Porting+-+Memory+Map
  - 由于gLibC和Linux kernel并不支持9bit data，配置SCI 9bit数据时，需要传入CS7（kernel驱动会把CS7转换为9bit），8bit数据使用CS8。
    9bit数据帧使用2字节half-word存储，高7bit无效。SCIF端口仅仅支持8bit数据。
  - CM33的固件（参考文件说明）需要首先在uboot下加载，然后再启动Linux kernel（可以从eMMC/SD/U盘/网络/串口等uboot支持的设备下载），例如：
