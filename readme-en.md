@@ -1,4 +1,4 @@
-# Virtual UART solution based on CM33 core of RZ/G2L ---
+# Virtual UART solution based on CM33 core of RZ/G2L
 
 ## Basic description
 
