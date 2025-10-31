@@ -65,6 +65,30 @@ cp.b $loadaddr 0x0002FF80 0x80
 dcache on
 cm33 start_debug 0x1002FF80 0x0001F800
 ```
+### Automatic Loading on Every Boot
+
+Set up automatic loading on every boot:
+```
+# Load vuart_nc.bin (16KB)
+=> setenv load_nc 'fatload mmc 0:1 $loadaddr vuart-nc.bin; cp.b $loadaddr 0x00010000 0x4000'
+# Load vuart_nv.bin (2KB)
+=> setenv load_nv 'fatload mmc 0:1 $loadaddr vuart-nv.bin; cp.b $loadaddr 0x0001F800 0x800'
+# Load vuart_sc.bin (960 bytes)
+=> setenv load_sc 'fatload mmc 0:1 $loadaddr vuart-sc.bin; cp.b $loadaddr 0x0002D400 0x3C0'
+# Load vuart_sv.bin (128 bytes)
+=> setenv load_sv 'fatload mmc 0:1 $loadaddr vuart-sv.bin; cp.b $loadaddr 0x0002FF80 0x80'
+# Start CM33 core
+=> setenv start_cm33 'cm33 start_debug 0x1002FF80 0x0001F800'
+# Combined: Load all CM33 firmware files
+=> setenv load_cm33_firmware 'mmc dev 0; dcache off; run load_nc; run load_nv; run load_sc; run load_sv; dcache on; run start_cm33'
+# Save all parameters
+=> saveenv
+# Boot Linux from SD card
+=> setenv boot_linux 'mmc dev 1; fatload mmc 1:1 0x48080000 Image; fatload mmc 1:1 0x48000000 r9a07g044l2-smarc.dtb; booti 0x48080000 - 0x48000000'
+# Complete automated boot sequence
+=> setenv bootcmd 'run load_cm33_firmware; run boot_linux'
+=> saveenv
+```
 ## Verification
 
 Make sure the following Linux kernel log can be found:
@@ -93,6 +117,52 @@ cat /sys/class/tty/ttySC3/device/rx_fifo_trigger
 ```
 - For VSCIF device, it will report error: Operation not permitted
 - For SCIF device, it will not report error, but the current RX FIFO trigger setting '8'
+
+## Testing
+- Test virtual uart using RZ/G2L and PMOD USBUART: 
+
+```
+# On PC:
+- set up the UART to receive the data
+$ stty -F /dev/ttyUSB0 3000000 raw -echo
+$ time dd if=/dev/ttyUSB0 bs=1M count=1 of=/tmp/received.dat iflag=fullblock # waiting for data
+
+# on RZ/G2L:
+
+- Set up the UART to send the data
+root@smarc-rzg2l:~# exec 3<> /dev/ttySC2
+root@smarc-rzg2l:~# cat /proc/interrupts | grep -E "msg4-core0|rsp1-core0" # check interrupt 
+ 27:          0          0     GICv3 104 Level     msg4-core0
+ 28:          0          0     GICv3 107 Level     rsp1-core0
+root@smarc-rzg2l:~# stty -F /dev/ttySC2 3000000 raw -echo 
+root@smarc-rzg2l:~# time dd if=/dev/zero bs=1M count=1 2>/dev/null | tr '\0' 'A' >&3 #send data
+
+real    0m3.516s
+user    0m0.009s
+sys     0m0.019s
+
+- Check interrupt after data send
+
+root@smarc-rzg2l:~# cat /proc/interrupts | grep -E "msg4-core0|rsp1-core0" 
+ 27:          0          0     GICv3 104 Level     msg4-core0
+ 28:       1025          0     GICv3 107 Level     rsp1-core0
+
+# Check output on PC
+
+$ time dd if=/dev/ttyUSB0 bs=1M count=1 of=/tmp/received.dat iflag=fullblock
+1+0 records in
+1+0 records out
+1048576 bytes (1.0 MB, 1.0 MiB) copied, 110.06 s, 9.5 kB/s
+
+real    1m50.076s
+user    0m0.009s
+sys     0m0.017s
+# Check the file to check data
+$ od -c /tmp/received.dat | head
+0000000   A   A   A   A   A   A   A   A   A   A   A   A   A   A   A   A
+*
+4000000
+```
 
 ## File description
 
