@@ -37,14 +37,13 @@
 #include <linux/string.h>
 #include <linux/sysrq.h>
 #include <linux/timer.h>
+#include <linux/version.h>
 
 #include "sh-vsci.h"
 #include "mhu.h"
 
-
 #define MHU_PORT_NUM_MAX	VSCI_DEVICE_NUM_MAX
 #define MHU_INTR_COUNT		(MHU_PORT_NUM_MAX * 2)
-
 
 /*
 	Refer to 'R_MHU_NS_Open()' of e2studio code.
@@ -65,7 +64,7 @@ union mhu_channel_info {
 };
 
 struct mhu_info {
-	struct device dev;
+	struct device *dev;
 
 	uint32_t port_count; /* maximum supported MHU ports */
 	int port_used[MHU_PORT_NUM_MAX]; /* UART app opened ports */
@@ -155,30 +154,28 @@ static irqreturn_t mhu_tx_intr(int irq, void *arg)
 static int mhu_request_irq(void *arg, struct mhu_port *mp, vsci_cb rxfn, vsci_cb txfn)
 {
 	struct mhu_info *mi = &mhui;
-	struct device *dev = &mi->dev;
+	struct device *dev = mi->dev;
 	int c = mp->port;
+	int ret;
 
 	mp->rxfn = rxfn;
 	mp->txfn = txfn;
 	mp->arg = arg;
 
-	if(request_irq(mp->irq_rx, mhu_rx_intr, 0, mp->irqr_name, arg)) {
+	ret = request_irq(mp->irq_rx, mhu_rx_intr, 0, mp->irqr_name, arg);
+	if(ret){
 		dev_err(dev, "%s: IRQ request for %s port %d  fail\n", __func__, mp->irqr_name, c);
-		goto exit0;
+		return -1;
 	}
 
-	if(request_irq(mp->irq_tx, mhu_tx_intr, 0, mp->irqt_name, arg)) {
+	ret = request_irq(mp->irq_tx, mhu_tx_intr, 0, mp->irqt_name, arg);
+	if(ret){
 		dev_err(dev, "%s: IRQ request for %s port %d fail\n", __func__, mp->irqt_name, c);
-		goto exit1;
+		free_irq(mp->irq_rx, arg);
+		return -1;
 	}
 
 	return 0;
-
-exit1:
-	free_irq(mp->irq_rx, arg);
-
-exit0:
-	return -1;
 }
 
 static void mhu_free_irq(struct mhu_port *mp)
@@ -215,7 +212,7 @@ uint32_t mhu_get_shm_size(void)
 {
 #define uDLY_CNT		50
 	int c = uDLY_CNT;
-	struct device *dev = &mhui.dev;
+	struct device *dev = mhui.dev;
 	struct mhu_channel *mch = mp->mch_cmd_send;
 
 	/* fill msg for little core */
@@ -248,7 +245,7 @@ int mhu_alloc_port(struct vsci_device *vd, vsci_cb rxfn, vsci_cb txfn)
 {
 	int c;
 	struct mhu_info *mi = &mhui;
-	struct device *dev = &mi->dev;
+	struct device *dev = mi->dev;
 	struct mhu_port *mp;
 
 	mutex_lock(&mhu_port_lock);
@@ -262,23 +259,20 @@ int mhu_alloc_port(struct vsci_device *vd, vsci_cb rxfn, vsci_cb txfn)
 
 	if(c == mi->port_count) {
 		dev_err(dev, "no more MHU port available, used %d port(s) in total\n", c);
-		goto exit0;
+		return -1;
 	}
 
 	mp = mi->port[c];
 
 	vd->mp = (size_t)mp;
 
-	if(-1 == mhu_request_irq((void *)&vd->mp, mp, rxfn, txfn))
-		goto exit1;
+	if(mhu_request_irq((void *)&vd->mp, mp, rxfn, txfn)) {
+		mi->port_used[c] = 0;
+		return -1;
+	}
 
 	return 0;
 
-exit1:
-	mi->port_used[c] = 0;
-
-exit0:
-	return -1;
 }
 EXPORT_SYMBOL_GPL(mhu_alloc_port);
 
@@ -296,7 +290,7 @@ EXPORT_SYMBOL_GPL(mhu_free_port);
 static int mhu_init_port(int num)
 {
 	struct mhu_info *mi = &mhui;
-	struct device *dev = &mi->dev;
+	struct device *dev = mi->dev;
 	struct device_node *dn = dev->of_node;
 	uint32_t arr[4] = {0};
 	union mhu_channel_info mci[3];
@@ -363,151 +357,115 @@ static int mhu_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct device_node *dn = pdev->dev.of_node;
 	struct mhu_info *mi = &mhui;
-	int irq, i, j;
-	void *mem;
+	int irq, i, ret;
 
-	mi->dev = *dev;
+	mi->dev = dev;
 
-	/* MHU register area */
+	/* Map MHU register area using managed API */
+	mi->reg_mapped = devm_platform_ioremap_resource(pdev, 0);
+	if (IS_ERR(mi->reg_mapped)) {
+		dev_err(dev, "Failed to map MHU register area\n");
+		return PTR_ERR(mi->reg_mapped);
+	}
+
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-
-	if(NULL == res) {
-		dev_err(dev, "Can not find IORESOURCE_MEM 0\n");
-		goto exit0;
-	}
-
-	if(NULL == request_mem_region(res->start, resource_size(res), dev_name(dev))) {
-		dev_err(dev, "MHU register region request fail\n");
-		goto exit0;
-	}
-
 	mi->reg_base = res->start;
 	mi->reg_size = resource_size(res);
 
-	/* SHMEM area, MHU msg/rsp shmem + vUART CTRL struct + vUART circ buffer */
+	/* Map SHMEM area using managed API */
+	mi->shm_mapped = devm_platform_ioremap_resource(pdev, 1);
+	if (IS_ERR(mi->shm_mapped)) {
+		dev_err(dev, "Failed to map MHU shared memory area\n");
+		return PTR_ERR(mi->shm_mapped);
+	}
+
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
-
-	if(NULL == res) {
-		dev_err(dev, "Can not find IORESOURCE_MEM 1\n");
-		goto exit1;
-	}
-
-	if(NULL == request_mem_region(res->start, resource_size(res), dev_name(dev))) {
-		dev_err(dev, "MHU register region request fail\n");
-		goto exit1;
-	}
-
 	mi->shm_base = res->start;
 	mi->shm_size = resource_size(res);
 
 	/* SHMEM base of RTOS */
 	if(of_property_read_u32(dn, "shm-rtos-base", &mi->shm_rtos_base)) {
 		dev_err(dev, "dts 'shm-rtos-base' read fail\n");
-		goto exit2;
+		return -EINVAL;
 	}
 
-	/* MHU IRQ information */
-	for(i = 0; ; i++) {
+	/*
+	 * MHU IRQ information
+	 * Kernel 6.1+ requires reading interrupt names from device tree directly
+	 * using of_property_read_string_index() as platform_get_resource()
+	 * no longer populates res->name for interrupts
+	 */
+	for(i = 0; i < MHU_INTR_COUNT; i++) {
+		const char *irq_name;
+		
 		irq = platform_get_irq_optional(pdev, i);
-
 		if(irq <= 0) {
+			/* End of interrupt list */
 			mi->port_count = i >> 1;
 			break;
 		}
-
-		if(i >= MHU_INTR_COUNT) {
-			dev_err(dev, "MHU interrupt resources %d exceed %d\n", irq, MHU_INTR_COUNT);
-			goto exit2;
+	#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
+		/* Kernel 6.x: Read interrupt name from device tree */
+		ret = of_property_read_string_index(dn, "interrupt-names", i, &irq_name);
+		if (ret) {
+			dev_err(dev, "No interrupt-names[%d] in device tree\n", i);
+			return -EINVAL;
 		}
-
+	#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+		/* Kernel 5.10-5.x: Use platform_get_resource for IRQ names */
 		res = platform_get_resource(pdev, IORESOURCE_IRQ, i);
+		if(!res || !res->name) {
+			dev_err(dev, "Cannot get IRQ name for interrupt %d\n", i);
+			return -EINVAL;
+		}
+		irq_name = res->name;
+	#endif
 
-		pr_info("MHU resource IRQ %d found, name = %s\n", irq, res->name);
+		pr_info("MHU IRQ %d found, name = %s\n", irq, irq_name);
 
 		mi->intr.irq[i] = irq;
-		mi->intr.irqname[i] = res->name;
+		mi->intr.irqname[i] = irq_name;
 	}
 
 	if(0 == mi->port_count) {
 		dev_err(dev, "No MHU port(s) found!\n");
-		goto exit2;
+		return -ENODEV;
 	}
 
-	// Memory map
-	mem = ioremap(mi->reg_base, mi->reg_size);
+	pr_info("MHU REG base = 0x%zx, size = 0x%zx\n", (size_t)mi->reg_mapped, (size_t)mi->reg_size);
 
-	if(NULL == mem) {
-		dev_err(dev, "REG area map failed\n");
-		goto exit2;
-	}
-
-	mi->reg_mapped = mem;
-	pr_info("MHU REG base = 0x%zx, size = 0x%x\n", (size_t)mem, (int)mi->reg_size);
-
-	mem = ioremap(mi->shm_base, mi->shm_size);
-
-	if(NULL == mem) {
-		dev_err(dev, "SHMEM  area map failed\n");
-		goto exit3;
-	}
-
-	mi->shm_mapped = mem;
-
-	// MHU port allocation
+	/* MHU port allocation - use devm for automatic cleanup */
 	for(i = 0; i < mi->port_count; i++) {
-		mi->port[i] = (struct mhu_port *)kzalloc(sizeof(struct mhu_port), GFP_KERNEL);
-
-		if(NULL == mi->port[i]) {
+		mi->port[i] = devm_kzalloc(dev, sizeof(struct mhu_port), GFP_KERNEL);
+		if(!mi->port[i]) {
 			dev_err(dev, "MHU port mem allocation fail for port %d\n", i);
-			i--;
-			goto exit4;
+			return -ENOMEM;
 		}
 
-		if(-1 == mhu_init_port(i))
-			goto exit4;
+		if(mhu_init_port(i)) {
+			dev_err(dev, "MHU port init fail for port %d\n", i);
+			return -EINVAL;
+		}
 
 		mi->port_used[i] = 0;
 	}
 
 	pr_info("MHU SHM base = 0x%zx(Linux VA), 0x%zx(Linux PA)\n", (size_t)mi->shm_mapped, (size_t)mi->shm_base);
 	pr_info("MHU SHM base = 0x%x(RTOS PA)\n", mi->shm_rtos_base);
-	pr_info("MHU SHM size = 0x%x\n", (int)mi->shm_size);	
+	pr_info("MHU SHM size = 0x%zx\n", (size_t)mi->shm_size);	
 	pr_info("MHU driver loaded, supports %d port(s) in total\n", mi->port_count);
 
 	return 0;
-
-exit4:
-	for(j = i; j >= 0; j--)
-		kfree(mi->port[j]);
-
-	iounmap(mi->shm_mapped);
-
-exit3:
-	iounmap(mi->reg_mapped);
-
-exit2:
-	release_mem_region(mi->shm_base, mi->shm_size);
-
-exit1:
-	release_mem_region(mi->reg_base, mi->reg_size);
-
-exit0:
-	return -ENODEV;
 }
 
 static int mhu_remove(struct platform_device *pdev)
 {
-	int i;
-	struct mhu_info *mi = &mhui;
-
-	for(i = mi->port_count - 1; i >= 0; i--)
-		kfree(mi->port[i]);
-
-	iounmap(mi->shm_mapped);
-	iounmap(mi->reg_mapped);
-
-	release_mem_region(mi->shm_base, mi->shm_size);
-	release_mem_region(mi->reg_base, mi->reg_size);
+	/*
+	 * Cleanup is handled automatically by devm_* functions
+	 * Memory unmapping and kfree are performed by device resource manager
+	 * IRQ names from device tree don't need to be freed
+	 */
+	pr_info("MHU driver removed\n");
 	
 	return 0;
 }
