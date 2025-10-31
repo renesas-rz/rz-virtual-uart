@@ -34,13 +34,13 @@ Note:
  - CM33 firmware loading and booting(Assume the CM33 firmware is located in VFAT partition 1, the 1st partition of eMMC):
    - mmc dev 0
    - dcache off
-   - fatload mmc 0:1 $loadaddr vuart_nc.bin
+   - fatload mmc 0:1 $loadaddr vuart-nc.bin
    - cp.b $loadaddr 0x00010000 0x4000
-   - fatload mmc 0:1 $loadaddr vuart_nv.bin
+   - fatload mmc 0:1 $loadaddr vuart-nv.bin
    - cp.b $loadaddr 0x0001F800 0x800
-   - fatload mmc 0:1 $loadaddr vuart_sc.bin
+   - fatload mmc 0:1 $loadaddr vuart-sc.bin
    - cp.b $loadaddr 0x0002D400 0x3C0
-   - fatload mmc 0:1 $loadaddr vuart_sv.bin
+   - fatload mmc 0:1 $loadaddr vuart-sv.bin
    - cp.b $loadaddr 0x0002FF80 0x80
    - dcache on
    - cm33 start_debug 0x1002FF80 0x0001F800
