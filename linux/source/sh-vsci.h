@@ -10,7 +10,6 @@
 ****************************************************************************/
 
 #define VSCI_DEVICE_NUM_MAX		8 /* large enough for current MPU types */
-#define VSCI_DRI_TMO			500 /* unit: us */
 
 enum vsci_name {
 	DEV_VSCIG0 = 1,
@@ -93,8 +92,22 @@ enum vsci_cmd_set {
 };
 
 enum vsci_br {
-	/* baudrate, error rate */
-	BR9600 = 1,		/* 0.0194995% */
+	/*
+	  * BR50 & BR75 are not supported due to 100M PCLK dividing limitation.
+	  */
+
+	 /* baudrate, error rate */
+	BR110 = 1,	/* 0.0651485% */
+	BR134,		/* 0.0223124% */
+	BR150,		/* 0.0194995% */
+	BR200,		/* 0.0194995% */
+	BR300,		/* 0.0194995% */
+	BR600,		/* 0.0194995% */
+	BR1200,		/* 0.0194995% */
+	BR1800,		/* 0.0060041% */
+	BR2400,		/* 0.0194995% */
+	BR4800,		/* 0.0194995% */
+	BR9600,		/* 0.0194995% */
 	BR19200,		/* 0.0194995% */
 	BR38400,		/* 0.0194995% */
 	BR57600,		/* 0.00335015% */
@@ -138,6 +151,16 @@ enum vsci_br {
 								break
 
 #define BAUD_OP(op)							\
+							op(110);			\
+							op(134);			\
+							op(150);			\
+							op(200);			\
+							op(300);			\
+							op(600);			\
+							op(1200);			\
+							op(1800);			\
+							op(2400);			\
+							op(4800);			\
 							op(9600);		\
 							op(19200);		\
 							op(38400);		\
@@ -174,18 +197,24 @@ union vscic_open {
 	struct {
 		uint32_t opcode : 4;
 		uint32_t devname : 4;
-		uint32_t resv : 24;
+		uint32_t dri_count : 4;
+		uint32_t resv : 20;
 	}c;
 
 	uint32_t d;
 };
 
+/*
+  * devname: VSCI_DEVxxx
+  * dri_count: device data idle interval, unit = 100us
+  */
 static inline uint32_t vcmd_open(uint32_t devname)
 {
 	union vscic_open o;
 	
 	o.c.opcode = VSCIC_OPEN;
 	o.c.devname = devname;
+	o.c.dri_count = 5; /* 500us by default, may changed by low baudrate */
 	o.c.resv = 0;
 
 	return o.d;
@@ -201,10 +230,20 @@ static inline uint32_t vcmd_open(uint32_t devname)
  * 4) The macro(es) below are the preset(default) baudrate settings.
  *  Customer can adjust the preset setting to fit for their UART device baudrate.
 */
+#define BAUD_ADJUST_110()				vcmd_baud_adjust(BR110, 226, 131, 1, 0, 0, 3)
+#define BAUD_ADJUST_134()				vcmd_baud_adjust(BR134, 184, 130, 1, 0, 0, 3)
+#define BAUD_ADJUST_150()				vcmd_baud_adjust(BR150, 163, 129, 1, 0, 0, 3)
+#define BAUD_ADJUST_200()				vcmd_baud_adjust(BR200, 122, 129, 1, 0, 0, 3)
+#define BAUD_ADJUST_300()				vcmd_baud_adjust(BR300, 81, 129, 1, 0, 0, 3)
+#define BAUD_ADJUST_600()				vcmd_baud_adjust(BR600, 163, 129, 1, 0, 0, 2)
+#define BAUD_ADJUST_1200()				vcmd_baud_adjust(BR1200, 81, 129, 1, 0, 0, 2)
+#define BAUD_ADJUST_1800()				vcmd_baud_adjust(BR1800, 216, 128, 1, 0, 0, 1)
+#define BAUD_ADJUST_2400()				vcmd_baud_adjust(BR2400, 163, 129, 1, 0, 0, 1)
+#define BAUD_ADJUST_4800()				vcmd_baud_adjust(BR4800, 81, 129, 1, 0, 0, 1)
 #define BAUD_ADJUST_9600()				vcmd_baud_adjust(BR9600, 163, 129, 1, 0, 0, 0)
-#define BAUD_ADJUST_19200()				vcmd_baud_adjust(BR19200, 81, 129, 1, 0, 0, 0)
-#define BAUD_ADJUST_38400()				vcmd_baud_adjust(BR38400, 40, 129, 1, 0, 0, 0)
-#define BAUD_ADJUST_57600()				vcmd_baud_adjust(BR57600, 31, 151, 1, 0, 0, 0)
+#define BAUD_ADJUST_19200()			vcmd_baud_adjust(BR19200, 81, 129, 1, 0, 0, 0)
+#define BAUD_ADJUST_38400()			vcmd_baud_adjust(BR38400, 40, 129, 1, 0, 0, 0)
+#define BAUD_ADJUST_57600()			vcmd_baud_adjust(BR57600, 31, 151, 1, 0, 0, 0)
 #define BAUD_ADJUST_115200()			vcmd_baud_adjust(BR115200, 15, 151, 1, 0, 0, 0)
 #define BAUD_ADJUST_230400()			vcmd_baud_adjust(BR230400, 7, 151, 1, 0, 0, 0)
 #define BAUD_ADJUST_460800()			vcmd_baud_adjust(BR460800, 3, 151, 1, 0, 0, 0)
@@ -232,14 +271,14 @@ static inline uint32_t vcmd_open(uint32_t devname)
 union vscic_baud_adjust {
 	struct {
 		uint32_t opcode : 4;
-		uint32_t baud : 5; /* Baudrate, vsci_br type */
+		uint32_t baud : 6; /* Baudrate, vsci_br type */
 		uint32_t BRR : 8; /* Register BRR */
 		uint32_t MDDR : 8; /* Register MDDR */
 		uint32_t BRME : 1; /* Register bit SEMR.BRME */
 		uint32_t BGDM : 1; /* Register bit SEMR.BGDM */
 		uint32_t ABCS0 : 1; /* Register bit SEMR.ABCS0 */
 		uint32_t CKS : 2; /* Register bits SMR.CKS */ 
-		uint32_t resv : 2;
+		uint32_t resv : 1;
 	}c;
 
 	uint32_t d;
@@ -277,12 +316,12 @@ enum {
 union vscic_conf {
 	struct {
 		uint32_t opcode : 4;
-		uint32_t baud : 5; /* Baudrate, vsci_br type */
+		uint32_t baud : 6; /* Baudrate, vsci_br type */
 		uint32_t dbits : 4; /* SCIg: 8 = 8bit, other = 9bit. SCIF: 8 = 8bit */
 		uint32_t parity : 2; /* VSCI_PARITY_XXX */
 		uint32_t sbits : 3; /* 1 = 1bit. 2 = 2bit */
 		uint32_t flow : 3; /* 1 = VSCI_HW_FLOWCTRL_XXX */
-		uint32_t resv : 11;
+		uint32_t resv : 10;
 	}c;
 
 	uint32_t d;

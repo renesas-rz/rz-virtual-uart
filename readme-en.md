@@ -210,6 +210,10 @@ Note: This patch is used only for RZ/G2L MPU w/ secure feature and if the Secure
 - **cm33/cm33.c**: source file for cm33 command support(copy cm33.c to u-boot/cmd/)
 
 ## History
+### 2025.11.14
+- Add the standard baudrates below 9600bps support, excluding B50 and B75 due to 100M PCLK dividing limitation.
+- Remove macro VSCI_DRI_TMO, this setting can be customized inside vcmd_open().
+
 ### 2025.10.09
 - Add UART app baud setting sample code.
 - Rename subcore firmware name(vuart_*.bin -> vuart-*.bin).

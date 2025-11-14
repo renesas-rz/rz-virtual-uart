@@ -19,9 +19,15 @@
 #error "__MAX_BAUD mismatch"
 #endif
 
+/*
+	B50 and B75 are not supported due to 100M pclk dividing limitation.
+*/
 static speed_t speed_name[] = {
-	/* Linux kernel 5.10 & GLibC 2.28 of GCC 8.3 defined baudrates */
-	B9600, B19200, B38400, 
+	B0/*B50*/, B0/*B75*/, B110,
+	B134, B150, B200,
+	B300, B600, B1200,
+	B1800, B2400, B4800,
+	B9600, B19200, B38400,
 	B57600,	B115200, B230400,
 	B460800, B500000, B576000,
 	B921600, B1000000, B1152000,
@@ -30,8 +36,11 @@ static speed_t speed_name[] = {
 };
 
 static int speed_arr[] = {
-	/* Linux kernel 5.10 & GLibC 2.28 of GCC 8.3 defined baudrates */
-	9600, 19200, 38400, 
+	50, 75, 110,
+	134, 150, 200,
+	300, 600, 1200,
+	1800, 2400, 4800,
+	9600, 19200, 38400,
 	57600, 115200, 230400,
 	460800, 500000, 576000,
 	921600, 1000000, 1152000,
@@ -39,28 +48,35 @@ static int speed_arr[] = {
 	3000000, 3500000, 4000000,
 
 	/* virtual UART extended baudrates, refer to sh-vsci.h */
-	1562500, 3125000, 5000000, 6000000,
-	6250000, 7000000, 8000000,
-	9000000, 10000000
+	1562500, 3125000, 5000000,
+	6000000, 6250000, 7000000,
+	8000000, 9000000, 10000000
 };
 
 static struct termios2 old;
 
 int uart_std_speed(int speed, speed_t &std_speed)
 {
-	int cnt;
+	int cnt, std_cnt;
 	int i;
 
-	cnt = sizeof(speed_name) / sizeof(speed_name[0]);
+	std_cnt = sizeof(speed_name) / sizeof(speed_name[0]);
+	cnt = sizeof(speed_arr) / sizeof(speed_arr[0]);
 
 	for(i = 0; i < cnt; i++) {
 		if(speed == speed_arr[i]) {
+			if(i >= std_cnt)
+				return -ERANGE;
+			
+			if(B0 == speed_name[i])
+				return -EPERM;
+			
 			std_speed = speed_name[i];
-			break;
+			return 0;
 		}
 	}
 
-	return (i == cnt) ? -1 : 0;
+	return -EPERM;
 }
 
 /*
@@ -68,7 +84,7 @@ int uart_std_speed(int speed, speed_t &std_speed)
  */
 int uart_set_term(int fd, int speed, char dbits, char parity, char sbits)
 {
-	int i;
+	int i, r;
 	speed_t std_speed;
 	struct termios2 opt;
 
@@ -81,12 +97,17 @@ int uart_set_term(int fd, int speed, char dbits, char parity, char sbits)
 
 	// set baudrate
 	opt.c_cflag &= ~CBAUD;
-	if(-1 == uart_std_speed(speed, std_speed)) {
+	r = uart_std_speed(speed, std_speed);
+	if(-ERANGE == r) {
 		opt.c_cflag |= BOTHER;
 		opt.c_ispeed = speed;
 		opt.c_ospeed = speed;
-	} else
+	} else if(0 == r) {
 		opt.c_cflag |= std_speed;
+	} else {/* -EPERM */
+		error("requested baudrate %d is not supported\n", speed);
+		goto exit0;
+	}
 
 	// set data bit
 	opt.c_cflag &= ~CSIZE;
