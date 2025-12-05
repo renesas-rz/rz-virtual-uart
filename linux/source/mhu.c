@@ -458,17 +458,42 @@ static int mhu_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int mhu_remove(struct platform_device *pdev)
+static int __mhu_remove_internal(struct platform_device *pdev)
 {
-	/*
-	 * Cleanup is handled automatically by devm_* functions
-	 * Memory unmapping and kfree are performed by device resource manager
-	 * IRQ names from device tree don't need to be freed
-	 */
-	pr_info("MHU driver removed\n");
+	int i;
+	struct mhu_info *mi = &mhui;
+	
+	for(i = mi->port_count - 1; i >= 0; i--)
+		kfree(mi->port[i]);
+	
+	iounmap(mi->shm_mapped);
+	iounmap(mi->reg_mapped);
+	release_mem_region(mi->shm_base, mi->shm_size);
+	release_mem_region(mi->reg_base, mi->reg_size);
+	
+	pr_info("MHU driver removed \n");
 	
 	return 0;
 }
+
+/* Wrapper function with version-specific return type */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
+/* Kernel 6.12+ mainline uses void return */
+static void mhu_remove(struct platform_device *pdev)
+{
+	__mhu_remove_internal(pdev);
+}
+
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+/* Kernel 5.10 and linux cip 6.1 uses int return */
+static int mhu_remove(struct platform_device *pdev)
+{
+	return __mhu_remove_internal(pdev);
+}
+
+#else
+#error "Unsupported kernel version for mhu_remove()"
+#endif
 
 static const char banner[] __initconst = "Renesas MHU driver initialized";
 
