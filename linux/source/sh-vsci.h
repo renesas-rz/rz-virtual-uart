@@ -24,7 +24,7 @@ enum vsci_name {
 	DEV_VSCIF_MAX
 };
 
-#ifdef __linux__
+#if defined(__linux__) || defined(__KERNEL__)
 #define IS_VSCIG_PORT(p)		(PORT_VSCIG == (p))
 #define IS_VSCIF_PORT(p)	(PORT_VSCIF == (p))
 #endif
@@ -55,7 +55,7 @@ struct shared_mem_info {
 	uint64_t circ_buffer[];
 };
 
-#ifdef __linux__
+#if defined(__linux__) || defined(__KERNEL__)
 struct vsci_device {
 	int devname; /* vsci device name, DEV_VSCIxxx */
 
@@ -507,7 +507,7 @@ static inline uint32_t vreq_tx_end(void)
 }
 
 
-#ifdef __linux__
+#if defined(__linux__) || defined(__KERNEL__)
 int vsci_alloc_device(struct device *devp, struct vsci_device *vd, void *sciport, int port_type, int port_num, vsci_cb rxfn, vsci_cb txfn);
 
 size_t vsci_get_mapbase(int port_type, int port_num);
