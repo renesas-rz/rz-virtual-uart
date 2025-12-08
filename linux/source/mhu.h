@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ *	Renesas RZ MPU MHU driver header
+ *
+ *	Copyright (C) 2024 Gary Yin
+ *
+ */
 
 #ifndef __MHU_H__
 #define __MHU_H__

@@ -155,7 +155,6 @@ static int mhu_request_irq(void *arg, struct mhu_port *mp, vsci_cb rxfn, vsci_cb
 {
 	struct mhu_info *mi = &mhui;
 	struct device *dev = mi->dev;
-	int c = mp->port;
 	int ret;
 
 	mp->rxfn = rxfn;
@@ -164,13 +163,13 @@ static int mhu_request_irq(void *arg, struct mhu_port *mp, vsci_cb rxfn, vsci_cb
 
 	ret = request_irq(mp->irq_rx, mhu_rx_intr, 0, mp->irqr_name, arg);
 	if(ret){
-		dev_err(dev, "%s: IRQ request for %s port %d  fail\n", __func__, mp->irqr_name, c);
+		dev_err(dev, "%s: IRQ request for %s port %d  fail\n", __func__, mp->irqr_name, mp->port);
 		return -1;
 	}
 
 	ret = request_irq(mp->irq_tx, mhu_tx_intr, 0, mp->irqt_name, arg);
 	if(ret){
-		dev_err(dev, "%s: IRQ request for %s port %d fail\n", __func__, mp->irqt_name, c);
+		dev_err(dev, "%s: IRQ request for %s port %d fail\n", __func__, mp->irqt_name, mp->port);
 		free_irq(mp->irq_rx, arg);
 		return -1;
 	}

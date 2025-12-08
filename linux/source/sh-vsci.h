@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ *	Renesas RZ MPU Virtual SCI/SCIF device driver header
+ *
+ *	Copyright (C) 2024 Gary Yin
+ */
 
 #ifndef __SH_VSCI_H__
 #define __SH_VSCI_H__
@@ -25,7 +31,7 @@ enum vsci_name {
 };
 
 #if defined(__linux__) || defined(__KERNEL__)
-#define IS_VSCIG_PORT(p)		(PORT_VSCIG == (p))
+#define IS_VSCIG_PORT(p)	(PORT_VSCIG == (p))
 #define IS_VSCIF_PORT(p)	(PORT_VSCIF == (p))
 #endif
 
@@ -97,17 +103,17 @@ enum vsci_br {
 	  */
 
 	 /* baudrate, error rate */
-	BR110 = 1,	/* 0.0651485% */
-	BR134,		/* 0.0223124% */
-	BR150,		/* 0.0194995% */
-	BR200,		/* 0.0194995% */
-	BR300,		/* 0.0194995% */
-	BR600,		/* 0.0194995% */
-	BR1200,		/* 0.0194995% */
-	BR1800,		/* 0.0060041% */
-	BR2400,		/* 0.0194995% */
-	BR4800,		/* 0.0194995% */
-	BR9600,		/* 0.0194995% */
+	BR110 = 1,		/* 0.0651485% */
+	BR134,			/* 0.0223124% */
+	BR150,			/* 0.0194995% */
+	BR200,			/* 0.0194995% */
+	BR300,			/* 0.0194995% */
+	BR600,			/* 0.0194995% */
+	BR1200,			/* 0.0194995% */
+	BR1800,			/* 0.0060041% */
+	BR2400,			/* 0.0194995% */
+	BR4800,			/* 0.0194995% */
+	BR9600,			/* 0.0194995% */
 	BR19200,		/* 0.0194995% */
 	BR38400,		/* 0.0194995% */
 	BR57600,		/* 0.00335015% */
@@ -151,16 +157,16 @@ enum vsci_br {
 								break
 
 #define BAUD_OP(op)							\
-							op(110);			\
-							op(134);			\
-							op(150);			\
-							op(200);			\
-							op(300);			\
-							op(600);			\
-							op(1200);			\
-							op(1800);			\
-							op(2400);			\
-							op(4800);			\
+							op(110);		\
+							op(134);		\
+							op(150);		\
+							op(200);		\
+							op(300);		\
+							op(600);		\
+							op(1200);		\
+							op(1800);		\
+							op(2400);		\
+							op(4800);		\
 							op(9600);		\
 							op(19200);		\
 							op(38400);		\
@@ -241,9 +247,9 @@ static inline uint32_t vcmd_open(uint32_t devname)
 #define BAUD_ADJUST_2400()				vcmd_baud_adjust(BR2400, 163, 129, 1, 0, 0, 1)
 #define BAUD_ADJUST_4800()				vcmd_baud_adjust(BR4800, 81, 129, 1, 0, 0, 1)
 #define BAUD_ADJUST_9600()				vcmd_baud_adjust(BR9600, 163, 129, 1, 0, 0, 0)
-#define BAUD_ADJUST_19200()			vcmd_baud_adjust(BR19200, 81, 129, 1, 0, 0, 0)
-#define BAUD_ADJUST_38400()			vcmd_baud_adjust(BR38400, 40, 129, 1, 0, 0, 0)
-#define BAUD_ADJUST_57600()			vcmd_baud_adjust(BR57600, 31, 151, 1, 0, 0, 0)
+#define BAUD_ADJUST_19200()				vcmd_baud_adjust(BR19200, 81, 129, 1, 0, 0, 0)
+#define BAUD_ADJUST_38400()				vcmd_baud_adjust(BR38400, 40, 129, 1, 0, 0, 0)
+#define BAUD_ADJUST_57600()				vcmd_baud_adjust(BR57600, 31, 151, 1, 0, 0, 0)
 #define BAUD_ADJUST_115200()			vcmd_baud_adjust(BR115200, 15, 151, 1, 0, 0, 0)
 #define BAUD_ADJUST_230400()			vcmd_baud_adjust(BR230400, 7, 151, 1, 0, 0, 0)
 #define BAUD_ADJUST_460800()			vcmd_baud_adjust(BR460800, 3, 151, 1, 0, 0, 0)
@@ -506,7 +512,6 @@ static inline uint32_t vreq_tx_end(void)
 	return t.d;
 }
 
-
 #if defined(__linux__) || defined(__KERNEL__)
 int vsci_alloc_device(struct device *devp, struct vsci_device *vd, void *sciport, int port_type, int port_num, vsci_cb rxfn, vsci_cb txfn);
 
@@ -522,4 +527,3 @@ void vsci_free_device(struct vsci_device *vd);
 #endif
 
 #endif
-
