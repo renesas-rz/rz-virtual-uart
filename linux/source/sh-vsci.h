@@ -38,8 +38,6 @@ enum vsci_name {
 #define IS_VSCIG_DEV(d)		(((d) >= DEV_VSCIG0) && ((d) < DEV_VSCIG_MAX))
 #define IS_VSCIF_DEV(d)		(((d) >= DEV_VSCIF0) && ((d) < DEV_VSCIF_MAX))
 
-typedef int (* vsci_cb)(uint32_t msg, void *arg);
-
 /*
 	RX buffer size = VSCI_BUF_SIZE, must be 2^N
 	TX buffer size = VSCI_BUF_SIZE, must be 2^N
@@ -513,7 +511,7 @@ static inline uint32_t vreq_tx_end(void)
 }
 
 #if defined(__linux__) || defined(__KERNEL__)
-int vsci_alloc_device(struct device *devp, struct vsci_device *vd, void *sciport, int port_type, int port_num, vsci_cb rxfn, vsci_cb txfn);
+int vsci_alloc_device(struct device *devp, struct vsci_device *vd, void *sciport, int port_type, int port_num, int (*rxfn)(uint32_t, void *), int (*txfn)(uint32_t, void *));
 
 size_t vsci_get_mapbase(int port_type, int port_num);
 

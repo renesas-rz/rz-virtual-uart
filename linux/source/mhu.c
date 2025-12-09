@@ -39,10 +39,9 @@
 #include <linux/timer.h>
 #include <linux/version.h>
 
-#include "sh-vsci.h"
 #include "mhu.h"
 
-#define MHU_PORT_NUM_MAX	VSCI_DEVICE_NUM_MAX
+#define MHU_PORT_NUM_MAX	8 /* maximum MHU ports supported */
 #define MHU_INTR_COUNT		(MHU_PORT_NUM_MAX * 2)
 
 /*
@@ -137,8 +136,8 @@ static irqreturn_t mhu_rx_intr(int irq, void *arg)
 
 static irqreturn_t mhu_tx_intr(int irq, void *arg)
 {
-	size_t paddr = *(size_t *)arg;
-	struct mhu_port *mp = (struct mhu_port *)paddr;
+	size_t addr = *(size_t *)arg;
+	struct mhu_port *mp = (struct mhu_port *)addr;
 	uint32_t msg;
 
 	if(clear_mhu_msg_status(mp->mch_irq_tx)) {
@@ -151,7 +150,7 @@ static irqreturn_t mhu_tx_intr(int irq, void *arg)
 	return IRQ_HANDLED;
 }
 
-static int mhu_request_irq(void *arg, struct mhu_port *mp, vsci_cb rxfn, vsci_cb txfn)
+static int mhu_request_irq(void *arg, struct mhu_port *mp, int (*rxfn)(uint32_t, void *), int (*txfn)(uint32_t, void *))
 {
 	struct mhu_info *mi = &mhui;
 	struct device *dev = mi->dev;
@@ -164,14 +163,14 @@ static int mhu_request_irq(void *arg, struct mhu_port *mp, vsci_cb rxfn, vsci_cb
 	ret = request_irq(mp->irq_rx, mhu_rx_intr, 0, mp->irqr_name, arg);
 	if(ret){
 		dev_err(dev, "%s: IRQ request for %s port %d  fail\n", __func__, mp->irqr_name, mp->port);
-		return -1;
+		return -EIO;
 	}
 
 	ret = request_irq(mp->irq_tx, mhu_tx_intr, 0, mp->irqt_name, arg);
 	if(ret){
 		dev_err(dev, "%s: IRQ request for %s port %d fail\n", __func__, mp->irqt_name, mp->port);
 		free_irq(mp->irq_rx, arg);
-		return -1;
+		return -EIO;
 	}
 
 	return 0;
@@ -231,7 +230,7 @@ uint32_t mhu_get_shm_size(void)
 
 	if(!c) {
 		dev_err(dev, "mhu msg status polling timeout\n");
-		return -1;
+		return -ETIMEDOUT;
 	}
 
 	return 0;
@@ -240,7 +239,7 @@ EXPORT_SYMBOL_GPL(mhu_send_msg);
 
 static DEFINE_MUTEX(mhu_port_lock);
 
-int mhu_alloc_port(struct vsci_device *vd, vsci_cb rxfn, vsci_cb txfn)
+int mhu_alloc_port(size_t *mport, int (*rxfn)(uint32_t, void *), int (*txfn)(uint32_t, void *))
 {
 	int c;
 	struct mhu_info *mi = &mhui;
@@ -258,27 +257,25 @@ int mhu_alloc_port(struct vsci_device *vd, vsci_cb rxfn, vsci_cb txfn)
 
 	if(c == mi->port_count) {
 		dev_err(dev, "no more MHU port available, used %d port(s) in total\n", c);
-		return -1;
+		return -ERANGE;
 	}
 
 	mp = mi->port[c];
 
-	vd->mp = (size_t)mp;
+	*mport = (size_t)mp;
 
-	if(mhu_request_irq((void *)&vd->mp, mp, rxfn, txfn)) {
+	if(mhu_request_irq((void *)mport, mp, rxfn, txfn)) {
 		mi->port_used[c] = 0;
-		return -1;
+		return -ENODEV;
 	}
 
 	return 0;
-
 }
 EXPORT_SYMBOL_GPL(mhu_alloc_port);
 
-void mhu_free_port(struct vsci_device *vd)
+void mhu_free_port(struct mhu_port *mp)
 {
 	struct mhu_info *mi = &mhui;
-	struct mhu_port *mp = (struct mhu_port *)vd->mp;
 
 	mi->port_used[mp->port] = 0;
 
@@ -323,7 +320,7 @@ static int mhu_init_port(int num)
 
 	if(of_property_read_u32_array(dn, pn, arr, 3)) {
 		dev_err(dev, "MHU %s config read fail for port %d\n", pn, num);
-		goto exit0;
+		return -EINVAL;
 	}
 
 	mci[0].info = arr[0];
@@ -345,9 +342,6 @@ static int mhu_init_port(int num)
 	mp->irqt_name = mi->intr.irqname[num + 1];
 
 	return 0;
-
-exit0:
-	return -1;
 }
 
 static int mhu_probe(struct platform_device *pdev)
@@ -356,7 +350,7 @@ static int mhu_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct device_node *dn = pdev->dev.of_node;
 	struct mhu_info *mi = &mhui;
-	int irq, i, ret;
+	int irq, i;
 
 	mi->dev = dev;
 
@@ -405,8 +399,7 @@ static int mhu_probe(struct platform_device *pdev)
 		}
 	#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
 		/* Kernel 6.x: Read interrupt name from device tree */
-		ret = of_property_read_string_index(dn, "interrupt-names", i, &irq_name);
-		if (ret) {
+		if(of_property_read_string_index(dn, "interrupt-names", i, &irq_name)) {
 			dev_err(dev, "No interrupt-names[%d] in device tree\n", i);
 			return -EINVAL;
 		}

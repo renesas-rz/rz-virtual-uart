@@ -198,7 +198,7 @@ index caf167f0c10a..f3e0c460106a 100644
  obj-$(CONFIG_SERIAL_IMX) += imx.o
  obj-$(CONFIG_SERIAL_IMX_EARLYCON) += imx_earlycon.o
 diff --git a/drivers/tty/serial/sh-sci.c b/drivers/tty/serial/sh-sci.c
-index 2ef52974a121..053926c13d8f 100644
+index 2ef52974a121..ee83be3690e4 100644
 --- a/drivers/tty/serial/sh-sci.c
 +++ b/drivers/tty/serial/sh-sci.c
 @@ -58,6 +58,9 @@
@@ -315,8 +315,8 @@ index 2ef52974a121..053926c13d8f 100644
 +	struct circ_buf *xmit = &port->state->xmit;
 +	struct vsci_device *vd = &sp->vi->vdev;
 +	unsigned char *pb;
-+	int bytes, count;
-+	uint64_t *buf, val, c;
++	int bytes, count, c;
++	uint64_t *buf, val;
 +
 +	buf = (uint64_t *)vd->tbuf;
 +	count = uart_circ_chars_pending(xmit);
@@ -597,7 +597,7 @@ index 2ef52974a121..053926c13d8f 100644
 +			vsci_intr_cb_tx
 +		);
 +
-+		if(-1 == ret)
++		if(ret)
 +			return -ENODEV;
 +
 +		s->vi->tx_start = 0;

@@ -98,7 +98,7 @@ size_t vsci_get_mapbase(int port_type, int port_num)
 	return pa + offset + 0x20 * (b + port_num);
 }
 
-int vsci_alloc_device(struct device *devp, struct vsci_device *vd, void *sciport, int port_type, int port_num, vsci_cb rxfn, vsci_cb txfn)
+int vsci_alloc_device(struct device *devp, struct vsci_device *vd, void *sciport, int port_type, int port_num, int (*rxfn)(uint32_t, void *), int (*txfn)(uint32_t, void *))
 {
 	int devname;
 	struct device *dev = (struct device *)devp;
@@ -124,7 +124,7 @@ int vsci_alloc_device(struct device *devp, struct vsci_device *vd, void *sciport
 		goto exit0;
 	}
 
-	if(-1 == mhu_alloc_port(vd, rxfn, txfn))
+	if(mhu_alloc_port(&vd->mp, rxfn, txfn))
 		goto exit0;
 
 	mp = (struct mhu_port *)vd->mp;
@@ -153,11 +153,11 @@ int vsci_alloc_device(struct device *devp, struct vsci_device *vd, void *sciport
 	return 0;
 
 exit0:
-	return -1;
+	return -ENODEV;
 }
 
 void vsci_free_device(struct vsci_device *vd)
 {
-	mhu_free_port(vd);
+	mhu_free_port((struct mhu_port *)vd->mp);
 }
 
