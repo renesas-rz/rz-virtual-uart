@@ -150,26 +150,22 @@ static irqreturn_t mhu_tx_intr(int irq, void *arg)
 	return IRQ_HANDLED;
 }
 
-static int mhu_request_irq(void *arg, struct mhu_port *mp, int (*rxfn)(uint32_t, void *), int (*txfn)(uint32_t, void *))
+static int mhu_request_irq(struct mhu_port *mp)
 {
 	struct mhu_info *mi = &mhui;
 	struct device *dev = mi->dev;
 	int ret;
 
-	mp->rxfn = rxfn;
-	mp->txfn = txfn;
-	mp->arg = arg;
-
-	ret = request_irq(mp->irq_rx, mhu_rx_intr, 0, mp->irqr_name, arg);
+	ret = request_irq(mp->irq_rx, mhu_rx_intr, 0, mp->irqr_name, mp->arg);
 	if(ret){
 		dev_err(dev, "%s: IRQ request for %s port %d  fail\n", __func__, mp->irqr_name, mp->port);
 		return -EIO;
 	}
 
-	ret = request_irq(mp->irq_tx, mhu_tx_intr, 0, mp->irqt_name, arg);
+	ret = request_irq(mp->irq_tx, mhu_tx_intr, 0, mp->irqt_name, mp->arg);
 	if(ret){
 		dev_err(dev, "%s: IRQ request for %s port %d fail\n", __func__, mp->irqt_name, mp->port);
-		free_irq(mp->irq_rx, arg);
+		free_irq(mp->irq_rx, mp->arg);
 		return -EIO;
 	}
 
@@ -183,7 +179,7 @@ static void mhu_free_irq(struct mhu_port *mp)
 	free_irq(mp->irq_rx, mp->arg);
  }
 
- void mhu_get_shm_base(size_t *pa, size_t *va, uint32_t *rtos_pa)
+void mhu_get_shm_base(size_t *pa, size_t *va, uint32_t *rtos_pa)
 {
 	struct mhu_info *mi = &mhui;
 
@@ -261,10 +257,13 @@ int mhu_alloc_port(size_t *mport, int (*rxfn)(uint32_t, void *), int (*txfn)(uin
 	}
 
 	mp = mi->port[c];
+	mp->rxfn = rxfn;
+	mp->txfn = txfn;
+	mp->arg = (void *)mport;
 
 	*mport = (size_t)mp;
 
-	if(mhu_request_irq((void *)mport, mp, rxfn, txfn)) {
+	if(mhu_request_irq(mp)) {
 		mi->port_used[c] = 0;
 		return -ENODEV;
 	}

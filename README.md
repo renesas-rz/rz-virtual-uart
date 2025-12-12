@@ -18,4 +18,4 @@ Please see **readme-en.md**
 仅供客户参考，验证需求，是否能满足客户需要，需要客户结合自己实际硬件软件实测，不保证没有bug。
 如果客户发现了bug，请联系瑞萨FAE支持。
 
-请阅读 **readme-chs.md**
+请阅读 **readme-en.md**

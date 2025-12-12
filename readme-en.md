@@ -105,15 +105,15 @@ MHU SHM size = ...
 MHU driver loaded, supports 2 port(s) in total
 ... ...
 soc:serial@0000: ttySC1 at MMIO ... (irq = 0, base_baud = 0) is a vscig
-soc:serial@0002: ttySC3 at MMIO ... (irq = 0, base_baud = 0) is a vscif
+soc:serial@0002: ttySC2 at MMIO ... (irq = 0, base_baud = 0) is a vscif
 ... ...
 ```
 
 - ttySC1 is the device '/dev/ttySC1', SCIg0 port, up to 1Mbps baudrate
-- ttySC3 is the device '/dev/ttySC3', SCIF2 port, up to 10Mbps baudrate
+- ttySC2 is the device '/dev/ttySC2', SCIF2 port, up to 10Mbps baudrate
 - Customer can distinguish it is a VSCIF or SCIF device by using command:
 ```
-cat /sys/class/tty/ttySC3/device/rx_fifo_trigger
+cat /sys/class/tty/ttySC2/device/rx_fifo_trigger
 ```
 - For VSCIF device, it will report error: Operation not permitted
 - For SCIF device, it will not report error, but the current RX FIFO trigger setting '8'
