@@ -210,6 +210,12 @@ Note: This patch is used only for RZ/G2L MPU w/ secure feature and if the Secure
 - **cm33/cm33.c**: source file for cm33 command support(copy cm33.c to u-boot/cmd/)
 
 ## History
+### 2025.12.14
+- Use kernel api with barrier for mhu registers for portability.
+- The shared_mem_info struct in sh-vsci.h changed.
+- Remove VSCI_DEVICE_NUM_MAX from sh-vsci.h.
+- Subcore firmware updated accordingly.
+
 ### 2025.12.09
 - Hide vsci device info from mhu driver.
 - Other optimization.

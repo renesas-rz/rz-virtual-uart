@@ -89,6 +89,16 @@ typedef irqreturn_t (* mhu_irqfn_t)(int irq, void *arg);
 
 static struct mhu_info mhui = {};
 
+static __inline uint32_t mhu_readl(uint32_t *reg)
+{
+	return ioread32((const volatile void __iomem *)reg);
+}
+
+static __inline void mhu_writel(uint32_t value, uint32_t *reg)
+{
+	iowrite32(value, (volatile void __iomem *)reg);
+}
+
 static __inline struct mhu_channel *get_mhu_channel(int channel, int type)
 {
 	struct mhu_channel *mc;
@@ -110,10 +120,10 @@ static __inline struct mhu_channel_msg *get_msg_channel(int channel)
 /* MHU MSG & RSP shared */
 static __inline uint32_t clear_mhu_msg_status(struct mhu_channel *mch)
 {
-	uint32_t status = mch->status;
+	uint32_t status = mhu_readl(&mch->status);
 	
 	if(status)
-		mch->clear = 1;
+		mhu_writel(1, &mch->clear);
 
 	return status;
 }
@@ -200,9 +210,9 @@ uint32_t mhu_get_shm_size(void)
 
 	return (uint32_t)mi->shm_size;	
 }
- EXPORT_SYMBOL_GPL(mhu_get_shm_size);
+EXPORT_SYMBOL_GPL(mhu_get_shm_size);
 
- int mhu_send_msg(struct mhu_port *mp, uint32_t msg)
+int mhu_send_msg(struct mhu_port *mp, uint32_t msg)
 {
 #define uDLY_CNT		50
 	int c = uDLY_CNT;
@@ -213,13 +223,13 @@ uint32_t mhu_get_shm_size(void)
 	*mp->msg_cmd_send = msg;
 
 	/* trigger little core interrupt */
-	mch->set = 1;
+	mhu_writel(1, &mch->set);
 
 	/* polling */
 	//	asm volatile ("isb");
 	udelay(1);
 
-	while(mch->status && c) {
+	while(mhu_readl(&mch->status) && c) {
 		udelay(1);
 		c--;
 	}
@@ -294,27 +304,6 @@ static int mhu_init_port(int num)
 
 	mp->port = num;
 
-	/*
-		The RX INTR, TX INTR, and CMD MHU channels are defined in the device tree.
-
-		device tree definition:
-		1) Linux INTR(L-CORE -> B-CORE):
-			MSG, RTOS RX REQ -> Linux CORE0 --- For MHU port 0
-			RSP, RTOS TX REQ -> Linux CORE0 --- For MHU port 0
-
-			MSG, RTOS RX REQ -> Linux CORE1 --- For MHU port 1
-			RSP, RTOS TX REQ -> Linux CORE1 --- For MHU port 1
-
-			... ...
-			... ...
-		2) RTOS INTR(B-CORE -> L-CORE, share the RSP channel):
-			MSG, Linux CORE0 CMD -> RTOS --- For MHU port 0
-			MSG, Linux CORE1 CMD -> RTOS --- For MHU port 1
-			... ...
-
-		RTOS VSCI device 0 -- MHU port 0 (Binding)
-		RTOS VSCI device 1 -- MHU port 1 (Binding)
-	*/
 	sprintf(pn, "port-%d", num);
 
 	if(of_property_read_u32_array(dn, pn, arr, 3)) {

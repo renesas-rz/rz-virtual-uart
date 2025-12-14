@@ -15,7 +15,6 @@
 	WITH THIS FILE(BOTH).
 ****************************************************************************/
 
-#define VSCI_DEVICE_NUM_MAX		8 /* large enough for current MPU types */
 
 enum vsci_name {
 	DEV_VSCIG0 = 1,
@@ -54,9 +53,9 @@ union rbuffer {
 };
 
 struct shared_mem_info {
-	uint32_t msg_buf[VSCI_DEVICE_NUM_MAX * 2]; /* Linux-RTOS MSG memory */
-	uint32_t reserve[256];
-	uint64_t circ_buffer[];
+	uint32_t msg_buffer[128]; /* Linux-RTOS MSG/RSP buffer memory, 512 bytes */
+	uint32_t reserve[128]; /* reserved 512 bytes memory */
+	uint64_t circ_buffer[]; /* Data block memory */
 };
 
 #if defined(__linux__) || defined(__KERNEL__)

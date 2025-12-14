@@ -95,7 +95,7 @@ size_t vsci_get_mapbase(int port_type, int port_num)
 
 	mhu_get_shm_base(&pa, NULL, NULL);
 
-	return pa + offset + 0x20 * (b + port_num);
+	return pa + offset + 0x10 * (b + port_num);
 }
 
 int vsci_alloc_device(struct device *devp, struct vsci_device *vd, void *sciport, int port_type, int port_num, int (*rxfn)(uint32_t, void *), int (*txfn)(uint32_t, void *))
@@ -132,7 +132,7 @@ int vsci_alloc_device(struct device *devp, struct vsci_device *vd, void *sciport
 	mhu_get_shm_base(NULL, &va, NULL);
 
 	/*
-		install RX/TX circ buffer pointers(Linux, RTOS)
+		install RX/TX circ buffer pointers(Linux)
 	*/
 	offset = offsetof(struct shared_mem_info, circ_buffer);
 
