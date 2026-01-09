@@ -53,8 +53,8 @@ union rbuffer {
 };
 
 struct shared_mem_info {
-	uint32_t msg_buffer[128]; /* Linux-RTOS MSG/RSP buffer memory, 512 bytes */
-	uint32_t reserve[128]; /* reserved 512 bytes memory */
+	uint32_t msg_buffer[128]; /* Linux-RTOS MSG/RSP buffer memory, 512-byte memory */
+	uint32_t reserve[128]; /* Reserved 512-byte memory */
 	uint64_t circ_buffer[]; /* Data block memory */
 };
 
@@ -320,7 +320,7 @@ union vscic_conf {
 	struct {
 		uint32_t opcode : 4;
 		uint32_t baud : 6; /* Baudrate, vsci_br type */
-		uint32_t dbits : 4; /* SCIg: 8 = 8bit, other = 9bit. SCIF: 8 = 8bit */
+		uint32_t dbits : 4; /* Data-bit, 7/8/9 */
 		uint32_t parity : 2; /* VSCI_PARITY_XXX */
 		uint32_t sbits : 3; /* 1 = 1bit. 2 = 2bit */
 		uint32_t flow : 3; /* 1 = VSCI_HW_FLOWCTRL_XXX */

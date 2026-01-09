@@ -109,22 +109,24 @@ int uart_set_term(int fd, int speed, char dbits, char parity, char sbits)
 		goto exit0;
 	}
 
-	// set data bit
+	// set data-bit
 	opt.c_cflag &= ~CSIZE;
 	switch (dbits) {
 		case '7':
-		case '9':
-			opt.c_cflag |= CS7; /* RZ/G2L VSCI driver code will change to 9bit config */
+			opt.c_cflag |= CS7;
 			break;
 		case '8':
 			opt.c_cflag |= CS8;
 			break;
+		case '9':
+			opt.c_cflag |= CS5; /* Virtual UART driver will convert to CS9 */
+			break;
 		default:
-			error("unsupported data size %d\n", dbits);
+			error("unsupported data size %c\n", dbits);
 			goto exit0;
 	}
 
-	// set parity
+	// set parity-bit
 	switch (parity) {
 		case 'n':
 		case 'N':
@@ -147,6 +149,7 @@ int uart_set_term(int fd, int speed, char dbits, char parity, char sbits)
 			goto exit0;
 	}
 
+	// set stop-bit
 	switch (sbits) {
 		case '1':
 			opt.c_cflag &= ~CSTOPB;
@@ -155,7 +158,7 @@ int uart_set_term(int fd, int speed, char dbits, char parity, char sbits)
 			opt.c_cflag |= CSTOPB;
 			break;
 		default:
-			error("unsupported stop bits %d\n", sbits);
+			error("unsupported stop bits %c\n", sbits);
 			goto exit0;
 	}
 

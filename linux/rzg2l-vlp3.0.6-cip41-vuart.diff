@@ -198,7 +198,7 @@ index caf167f0c10a..f3e0c460106a 100644
  obj-$(CONFIG_SERIAL_IMX) += imx.o
  obj-$(CONFIG_SERIAL_IMX_EARLYCON) += imx_earlycon.o
 diff --git a/drivers/tty/serial/sh-sci.c b/drivers/tty/serial/sh-sci.c
-index 2ef52974a121..ee83be3690e4 100644
+index 2ef52974a121..3e6b9caa074b 100644
 --- a/drivers/tty/serial/sh-sci.c
 +++ b/drivers/tty/serial/sh-sci.c
 @@ -58,6 +58,9 @@
@@ -646,7 +646,7 @@ index 2ef52974a121..ee83be3690e4 100644
  	serial_port_out(port, SCSCR, s->hscif_tot);	/* TE=0, RE=0, CKE1=0 */
  
  	reg = sci_getreg(port, SCFCR);
-@@ -2451,6 +2734,35 @@ static void sci_set_termios(struct uart_port *port, struct ktermios *termios,
+@@ -2451,6 +2734,36 @@ static void sci_set_termios(struct uart_port *port, struct ktermios *termios,
  	unsigned long max_freq = 0;
  	int best_clk = -1;
  	unsigned long flags;
@@ -662,12 +662,13 @@ index 2ef52974a121..ee83be3690e4 100644
 +		uart_update_timeout(port, termios->c_cflag, baud);
 +
 +		vsci_baud_adjust(vd, baud);
++		bits = termios->c_cflag & CSIZE;
 +
 +		vsci_send_cmd(
 +			vd,
 +			vcmd_conf(
 +				vsci_baud_enc(baud),
-+				(CS8 == (termios->c_cflag & CSIZE)) ? 8 : 9,
++				(CS8 == bits) ? 8 : ((CS7 == bits) ? 7 : 9),
 +				(termios->c_cflag & PARENB) ? ((PARODD & termios->c_cflag) ? VSCI_PARITY_ODD : VSCI_PARITY_EVEN) : VSCI_PARITY_OFF,
 +				(termios->c_cflag & CSTOPB) ? 2 : 1,
 +				s->has_rtscts ? VSCI_HW_FLOWCTRL_ON : VSCI_HW_FLOWCTRL_OFF
@@ -682,7 +683,7 @@ index 2ef52974a121..ee83be3690e4 100644
  
  	if ((termios->c_cflag & CSIZE) == CS7) {
  		smr_val |= SCSMR_CHR;
-@@ -2782,6 +3094,10 @@ static const char *sci_type(struct uart_port *port)
+@@ -2782,6 +3095,10 @@ static const char *sci_type(struct uart_port *port)
  		return "scifb";
  	case PORT_HSCIF:
  		return "hscif";
@@ -693,7 +694,7 @@ index 2ef52974a121..ee83be3690e4 100644
  	}
  
  	return NULL;
-@@ -2819,6 +3135,9 @@ static void sci_release_port(struct uart_port *port)
+@@ -2819,6 +3136,9 @@ static void sci_release_port(struct uart_port *port)
  {
  	struct sci_port *sport = to_sci_port(port);
  
@@ -703,7 +704,7 @@ index 2ef52974a121..ee83be3690e4 100644
  	if (port->dev->of_node || (port->flags & UPF_IOREMAP)) {
  		iounmap(port->membase);
  		port->membase = NULL;
-@@ -2833,6 +3152,9 @@ static int sci_request_port(struct uart_port *port)
+@@ -2833,6 +3153,9 @@ static int sci_request_port(struct uart_port *port)
  	struct sci_port *sport = to_sci_port(port);
  	int ret;
  
@@ -713,7 +714,7 @@ index 2ef52974a121..ee83be3690e4 100644
  	res = request_mem_region(port->mapbase, sport->reg_size,
  				 dev_name(port->dev));
  	if (unlikely(res == NULL)) {
-@@ -3007,6 +3329,14 @@ static int sci_init_single(struct platform_device *dev,
+@@ -3007,6 +3330,14 @@ static int sci_init_single(struct platform_device *dev,
  	port->line	= index;
  	port->has_sysrq = IS_ENABLED(CONFIG_SERIAL_SH_SCI_CONSOLE);
  
@@ -728,7 +729,7 @@ index 2ef52974a121..ee83be3690e4 100644
  	res = platform_get_resource(dev, IORESOURCE_MEM, 0);
  	if (res == NULL)
  		return -ENOMEM;
-@@ -3118,6 +3448,9 @@ static int sci_init_single(struct platform_device *dev,
+@@ -3118,6 +3449,9 @@ static int sci_init_single(struct platform_device *dev,
  
  static void sci_cleanup_single(struct sci_port *port)
  {
@@ -738,7 +739,7 @@ index 2ef52974a121..ee83be3690e4 100644
  	pm_runtime_disable(port->port.dev);
  }
  
-@@ -3346,6 +3679,12 @@ static const struct of_device_id of_sci_match[] = {
+@@ -3346,6 +3680,12 @@ static const struct of_device_id of_sci_match[] = {
  	}, {
  		.compatible = "renesas,sci",
  		.data = SCI_OF_DATA(PORT_SCI, SCIx_SCI_REGTYPE),
@@ -751,7 +752,7 @@ index 2ef52974a121..ee83be3690e4 100644
  	}, {
  		/* Terminator */
  	},
-@@ -3416,6 +3755,24 @@ static struct plat_sci_port *sci_parse_dt(struct platform_device *pdev,
+@@ -3416,6 +3756,24 @@ static struct plat_sci_port *sci_parse_dt(struct platform_device *pdev,
  	sp->has_rtscts = of_property_read_bool(np, "uart-has-rtscts");
  	sp->rstc = rstc;
  
@@ -776,7 +777,7 @@ index 2ef52974a121..ee83be3690e4 100644
  	return p;
  }
  
-@@ -3451,17 +3808,19 @@ static int sci_probe_single(struct platform_device *dev,
+@@ -3451,17 +3809,19 @@ static int sci_probe_single(struct platform_device *dev,
  	if (ret)
  		return ret;
  

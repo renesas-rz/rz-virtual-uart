@@ -9,10 +9,9 @@ any bug, please contact Renesas window person.
 ## Features
 
 - Two ports are supported: SCI0(P40_0 & P40_1, 1.8v) + SCIF2(P48_0 & P48_1, 3.3v, inside PMOD1). SCI0 signals are not exported originally.
-- SCI can support the baudrate up to 1Mbps，8bit or 9bit data format.
-- SCIF can support the baudrate up to 10Mbps，8bit data format only.
-- For supported baudrates, please refer to the 'enum vsci_br' definition inside file sh-vsci.h. This enum definition is used by kernel virtual 
- UART driver and CM33 firmware. Linux UART application should not use it.
+- SCI(SCIg) can support the baudrate up to 1Mbps，7/8/9 data-bit, 1/2 stop-bit, and odd/even/none parity data format.
+- SCIF can support the baudrate up to 10Mbps，7/8 data-bit, 1/2 stop-bit, and odd/even/none parity data format.
+- For supported baudrates and related error-rate, please refer to the 'enum vsci_br' definition in the file sh-vsci.h.
 - This solution will create the standard Linux UART devices(/dev/ttySCx). Linux UART app needs no modification, and no special library or API 
  required.
 
@@ -21,6 +20,7 @@ any bug, please contact Renesas window person.
 - Customer can refer to this solution for other Linux kernel developed based on Renesas VLP Linux 5.10 kernel.
 - The maximum devices CM33 core can manage equals the CA55 big core count. If using single-core RZ/G2L, only 1x SCIF or 1x SCI device can be 
  managed by CM33 core.
+- Customer can enable many virtual UART devices in device tree, but only 2 of them can be opened at the same time.
 - Customer can choose the ports configurations based on their own hardware. Linux kernel side needs to be changed only(refer to this sample):
  - SCI x1 + SCIF x1
  - SCI x1 + SCI x1
@@ -30,9 +30,9 @@ any bug, please contact Renesas window person.
  (SCI = SCI0 ~ SCI1, SCIF = SCIF0 ~ SCIF4)
 - This solution has NO relation to the OpenAMP solution. Customer can reduce the default 128MB reserved DDR memory to 2MB, refer to wiki:
  https://renesas-wiki.atlassian.net/wiki/spaces/REN/pages/1018061/RZ+BSP+Porting+-+Memory+Map, section 'Reduce reserved area for RZ/G2L SMARC board'.
-- Due to the lack of support of 9bit UART data format in Linux kernel and GLibC, if customer wants to support 9bit data on SCI0 port please pass
- CS7 in Linux UART application instead. Each 9bit data is stored in 2-byte half-word, and the upper 7bit is invalid.For 8bit data format, CS8 is 
- used. SCIF ports can suport 8-bit data only.
+ (This wiki is for the application without subcore running, but this virtual UART solution does not use DDR RAM so it is also applicable)
+- Due to the lack of support of 9bit UART data format in Linux kernel and GLibC, if customer wants to support 9bit data on SCI port please pass
+ CS5 in Linux UART application instead. Each 9bit data is stored in 2-byte half-word, and the upper 7bit is invalid.
 - Customer should load CM33 firmware and bring up CM33 core first inside u-boot. Then boot into Linux system.
    
 ## CM33 firmware loading and booting
@@ -210,6 +210,10 @@ Note: This patch is used only for RZ/G2L MPU w/ secure feature and if the Secure
 - **cm33/cm33.c**: source file for cm33 command support(copy cm33.c to u-boot/cmd/)
 
 ## History
+### 2026.01.09
+- Add 7-bit data frame support. Now 7/8/9-bit data frames are supported.
+- Subcore firmware updated accordingly.
+
 ### 2025.12.14
 - Use kernel api with barrier for mhu registers for portability.
 - The shared_mem_info struct in sh-vsci.h changed.
