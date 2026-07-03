@@ -15,6 +15,7 @@ any bug, please contact Renesas window person.
  required.
 - The CM33 firmware is loaded and brought up from Linux kernel driver automatically. Customer application does not need to care about this.
 - The supported baudrates and related error-rates list:
+```
   110, 0.0651485%
   134, 0.0223124%
   150, 0.0194995%
@@ -52,6 +53,7 @@ any bug, please contact Renesas window person.
   8000000, 0.0976562%
   9000000, 0.368922%
   10000000 0.09766%
+```
 - New baudrate can be added. The two lowest standard baudrates 50 and 75 are not supported due to hardware limitation.
 
 ## Note
