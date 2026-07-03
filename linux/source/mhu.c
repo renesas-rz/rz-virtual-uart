@@ -26,6 +26,7 @@
 #include <linux/mm.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
+#include <linux/of_address.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/reset.h>
@@ -43,6 +44,8 @@
 
 #define MHU_PORT_NUM_MAX	8 /* maximum MHU ports supported */
 #define MHU_INTR_COUNT		(MHU_PORT_NUM_MAX * 2)
+
+int rz_subcore_boot(void __iomem *sysc_base, uint32_t s_addr, uint32_t ns_addr);
 
 /*
 	Refer to 'R_MHU_NS_Open()' of e2studio code.
@@ -74,8 +77,9 @@ struct mhu_info {
 	void *reg_mapped;
 
 	resource_size_t shm_base;
-	resource_size_t shm_size;
+	resource_size_t shm_size; /* shared memory block size */
 	void *shm_mapped;
+	uint32_t comm_shm_size; /* shared memory size for data communication */
 
 	uint32_t shm_rtos_base; /* RTOS's view of SHMEM base, 32bit PA */
 
@@ -85,8 +89,19 @@ struct mhu_info {
 	}intr;
 };
 
+struct subcore {
+	struct device *dev;
+	const char *fw_path;
+	uint32_t s_addr, ns_addr; /* subcore's vector addr */
+	uint32_t sv_area[2], sc_area[2]; /* offset, size */
+	uint32_t nv_area[2], nc_area[2]; /* offset, size */
+	void __iomem *firmware, *sysc;
+	int loaded;
+};
+
 typedef irqreturn_t (* mhu_irqfn_t)(int irq, void *arg);
 
+static struct subcore rzsubcore = {};
 static struct mhu_info mhui = {};
 
 static __inline uint32_t mhu_readl(uint32_t *reg)
@@ -189,6 +204,175 @@ static void mhu_free_irq(struct mhu_port *mp)
 	free_irq(mp->irq_rx, mp->arg);
  }
 
+static int firmware_load(const char *name, char *mem, uint32_t offset, uint32_t size)
+{
+	char *pname;
+	struct file *flip;
+	loff_t offt = 0;
+	struct subcore *sc = &rzsubcore;
+	struct device *dev = sc->dev;
+
+	pname = (char *)kzalloc(strlen(sc->fw_path) + strlen(name) + 4, GFP_KERNEL);
+
+	if(NULL == pname)
+		return -ENOMEM;
+
+	strcpy(pname, sc->fw_path);
+	strcat(pname, name);
+
+	flip = filp_open(pname, O_RDONLY, 0);
+
+	if(NULL == flip) {
+		dev_err(dev, "firmware <%s> open fail\n", name);
+		goto exit0;
+	}
+
+	if(kernel_read(flip, mem + offset, size, &offt) <= 0) {
+		dev_err(dev, "firmware <%s> read fail\n", name);
+		goto exit1;
+	}
+
+	filp_close(flip, NULL);
+	kfree(pname);
+
+	pr_info("subcore firmware %s loaded\n", name);
+
+	return 0;
+
+exit1:
+	filp_close(flip, NULL);
+
+exit0:
+	kfree(pname);
+	return -EIO;
+}
+
+static int mhu_subcore_init(struct platform_device *pdev)
+{
+	struct resource *res;
+	struct device *dev = &pdev->dev;
+	struct device_node *np = pdev->dev.of_node;
+	uint32_t shm_phy_base, fw_phy_base;
+	struct subcore *sc = &rzsubcore;
+
+	if(of_property_read_u32(np, "subcore-s", &sc->s_addr)) {
+		dev_err(dev, "property 'subcore-s' read fail\n");
+		return -EINVAL;
+	}
+
+	if(of_property_read_u32(np, "subcore-ns", &sc->ns_addr)) {
+		dev_err(dev, "property 'subcore-ns' read fail\n");
+		return -EINVAL;
+	}
+
+	if(of_property_read_string(np, "firmware-path", &sc->fw_path)) {
+		dev_err(dev, "property 'firmware-path' read fail\n");
+		return -EINVAL;
+	}
+
+	shm_phy_base = (uint32_t)mhui.shm_base;
+
+	/* Firmware memory block */
+	sc->firmware = of_iomap(np, 2);
+
+	if(NULL == sc->firmware) {
+		dev_err(dev, "firmware memory block map fail\n");
+		return -ENOMEM;
+	}
+
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 2);
+	fw_phy_base = (uint32_t)res->start;
+
+	/* SYSC reg area */
+	sc->sysc = of_iomap(np, 3);
+
+	if(NULL == sc->sysc) {
+		dev_err(dev, "SYSC reg area map fail\n");
+		goto exit0;
+	}
+
+	if(of_property_read_u32_array(np, "firmware-sv", sc->sv_area, 2)) {
+		dev_err(dev, "property 'firmware-sv' read fail\n");
+		goto exit1;
+	}
+
+	if(of_property_read_u32_array(np, "firmware-sc", sc->sc_area, 2)) {
+		dev_err(dev, "property 'firmware-sc' read fail\n");
+		goto exit1;
+	}
+
+	if(of_property_read_u32_array(np, "firmware-nv", sc->nv_area, 2)) {
+		dev_err(dev, "property 'firmware-nv' read fail\n");
+		goto exit1;
+	}
+
+	if(of_property_read_u32_array(np, "firmware-nc", sc->nc_area, 2)) {
+		dev_err(dev, "property 'firmware-nc' read fail\n");
+		goto exit1;
+	}
+
+	sc->sv_area[0] -= shm_phy_base;
+	sc->sc_area[0] -= shm_phy_base;
+	sc->nv_area[0] -= fw_phy_base;
+	sc->nc_area[0] -= fw_phy_base;
+	sc->dev = dev;
+	sc->loaded = 0;
+
+	return 0;
+
+exit1:
+	iounmap(sc->sysc);
+
+exit0:
+	iounmap(sc->firmware);
+
+	return -EIO;
+
+}
+
+static int mhu_subcore_boot(void)
+{
+	struct subcore *sc = &rzsubcore;
+
+	if(sc->loaded)
+		return 0;
+
+	/* secure-vector locates in shared memory block */
+	if(firmware_load("vuart-sv.bin", (char *)mhui.shm_mapped, sc->sv_area[0], sc->sv_area[1]))
+		goto exit0;
+
+	/* secure-code locates in shared memory block */
+	if(firmware_load("vuart-sc.bin", (char *)mhui.shm_mapped, sc->sc_area[0], sc->sc_area[1]))
+		goto exit0;
+
+	/* non-secure-vector locates in firmware memory block */
+	if(firmware_load("vuart-nv.bin", (char *)sc->firmware, sc->nv_area[0], sc->nv_area[1]))
+		goto exit0;
+
+	/* non-secure-code locates in firmware memory block */
+	if(firmware_load("vuart-nc.bin", (char *)sc->firmware, sc->nc_area[0], sc->nc_area[1]))
+		goto exit0;
+
+	if(rz_subcore_boot(sc->sysc, sc->s_addr, sc->ns_addr))
+		goto exit0;
+
+	iounmap(sc->sysc);
+	iounmap(sc->firmware);
+	sc->loaded = 1;
+
+	mdelay(10); // wait for subcore ready state
+
+	pr_info("subcore boot up successfully[%08X:%08X]\n", sc->s_addr, sc->ns_addr);
+
+	return 0;
+
+exit0:
+	iounmap(sc->sysc);
+	iounmap(sc->firmware);
+
+	return -EIO;
+}
+
 void mhu_get_shm_base(size_t *pa, size_t *va, uint32_t *rtos_pa)
 {
 	struct mhu_info *mi = &mhui;
@@ -208,7 +392,7 @@ uint32_t mhu_get_shm_size(void)
 {
 	struct mhu_info *mi = &mhui;
 
-	return (uint32_t)mi->shm_size;	
+	return mi->comm_shm_size;	
 }
 EXPORT_SYMBOL_GPL(mhu_get_shm_size);
 
@@ -255,6 +439,11 @@ int mhu_alloc_port(size_t *mport, int (*rxfn)(uint32_t, void *), int (*txfn)(uin
 	mutex_lock(&mhu_port_lock);
 	for(c = 0; c < mi->port_count; c++) {
 		if(0 == mi->port_used[c]) {
+			if(mhu_subcore_boot()) {
+				mutex_unlock(&mhu_port_lock);
+				return -EIO;
+			}
+
 			mi->port_used[c] = 1;
 			break;
 		}
@@ -368,6 +557,17 @@ static int mhu_probe(struct platform_device *pdev)
 	if(of_property_read_u32(dn, "shm-rtos-base", &mi->shm_rtos_base)) {
 		dev_err(dev, "dts 'shm-rtos-base' read fail\n");
 		return -EINVAL;
+	}
+
+	if(of_property_read_u32(dn, "comm-shm-size", &mi->comm_shm_size)) {
+		dev_err(dev, "dts 'comm-shm-size' read fail\n");
+		return -EINVAL;
+	}
+
+	/* Prepare RTOS boot */
+	if(mhu_subcore_init(pdev)) {
+		dev_err(dev, "subcore boot init fail\n");
+		return -ENODEV;
 	}
 
 	/*

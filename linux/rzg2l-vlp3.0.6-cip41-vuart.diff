@@ -1,15 +1,17 @@
 diff --git a/arch/arm64/boot/dts/renesas/r9a07g044.dtsi b/arch/arm64/boot/dts/renesas/r9a07g044.dtsi
-index 80557ac31f5a..845db9e8fb7b 100644
+index 80557ac31f5a..55c1d5450b8b 100644
 --- a/arch/arm64/boot/dts/renesas/r9a07g044.dtsi
 +++ b/arch/arm64/boot/dts/renesas/r9a07g044.dtsi
-@@ -535,6 +535,44 @@ sci1: serial@1004d400 {
+@@ -535,6 +535,55 @@ sci1: serial@1004d400 {
  			status = "disabled";
  		};
  
 +		mhu: mhu@10400000 {
 +			compatible = "renesas,mhu-r9a07g044";
 +				reg = <0 0x10400000 0 0x1000>, /* MHU reg */
-+				      <0 0x00020000 0 0x4000>; /* Shared memory of Linux side */
++				      <0 0x00020000 0 0x10000>, /* Shared memory block of Linux side */
++				      <0 0x00010000 0 0x10000>, /* Firmware memory block of Linux side */
++				      <0 0x11020000 0 0x10000>; /* SYSC reg */
 +			interrupts = <GIC_SPI 72 IRQ_TYPE_LEVEL_HIGH>,/* CH4 MSG, M33->CORE0 */
 +				     <GIC_SPI 75 IRQ_TYPE_LEVEL_HIGH>,/* CH1 RSP, M33->CORE0 */
 +				     <GIC_SPI 73 IRQ_TYPE_LEVEL_HIGH>,/* CH5 MSG, M33->CORE1 */
@@ -21,7 +23,16 @@ index 80557ac31f5a..845db9e8fb7b 100644
 +			port-0 = <0x0004 0x10001 0x0001>;
 +			port-1 = <0x0005 0x10003 0x0003>;
 +
-+			shm-rtos-base = <0x20020000>; /* Shared memory base of RTOS side */
++			shm-rtos-base = <0x20020000>; /* shared memory base of RTOS side */
++			comm-shm-size = <0x4000>; /* actual shared memory size for data communication */
++
++			subcore-s = <0x1002ff80>; /* subcore secure vector base, subcore's view */
++			subcore-ns = <0x0001f800>; /* subcore non-secure vector base, subcore's view */
++			firmware-sv = <0x2ff80 0x80>; /* secure vector base(shared memory), size */
++			firmware-sc = <0x2d400 0x3C0>; /* secure code base(shared memory), size */
++			firmware-nv = <0x1f800 0x800>; /* non-secure vector base(firmware memory), size */
++			firmware-nc = <0x10000 0x4000>; /* non-secure code base(firmware memory), size */
++			firmware-path = "/usr/share/firmware/"; /* vuart-xx.bin file location */
 +
 +			status = "disabled";
 +		};
@@ -164,6 +175,82 @@ index c21efb04634e..fe313dbe2519 100644
  };
  
  #ifdef CONFIG_CLK_R9A07G044
+diff --git a/drivers/clk/renesas/rzg2l-cpg.c b/drivers/clk/renesas/rzg2l-cpg.c
+index 766beb585f20..a55ece0908de 100644
+--- a/drivers/clk/renesas/rzg2l-cpg.c
++++ b/drivers/clk/renesas/rzg2l-cpg.c
+@@ -1433,6 +1433,62 @@ static void rzg2l_cpg_genpd_remove(void *data)
+ 	pm_genpd_remove(data);
+ }
+ 
++#define CPG_SIPLL3_MON	0x13C	// PLL3 (SSCG) Monitor Register
++#define CPG_CLKON_CM33	0x504	// Clock Control Register Cortex-M33
++#define CPG_CLKMON_CM33	0x684	// Clock Monitor Register Cortex-M33
++#define CPG_RST_CM33		0x804	// Reset Control Register Cortex-M33
++#define CPG_RSTMON_CM33	0x984	// Reset Monitor Register Cortex-M33
++
++#define SYS_CM33_CFG0		0x804	// CM33 Config Register0
++#define SYS_CM33_CFG1		0x808	// CM33 Config Register1
++#define SYS_CM33_CFG2		0x80C	// CM33 Config Register2
++#define SYS_CM33_CFG3		0x810	// CM33 Config Register3
++#define SYS_CM33_CTL		0x818	// CM33 Control Register
++#define SYS_LSI_MODE		0xA00	// LSI Mode Signal Register
++#define SYS_LP_CM33CTL1	0xD28	// Lowpower Sequence CM33 Control Register1
++
++static void __iomem *cpg_base;
++int rz_subcore_boot(void __iomem *sysc_base, uint32_t s_addr, uint32_t ns_addr)
++{
++	uint32_t val;
++
++	// Check if the SSCG PLL3 is ON or not
++	if ((readl(cpg_base + CPG_SIPLL3_MON) & 0x1) == 0x1) {
++		writel(0x00103CE5, sysc_base + SYS_CM33_CFG0);
++		writel(0x00103CE5, sysc_base + SYS_CM33_CFG1);
++	} else {
++		writel(0x00003D08, sysc_base + SYS_CM33_CFG0);
++		writel(0x00003D08, sysc_base + SYS_CM33_CFG1);
++	}
++
++	// Set the secure vector address of Cortex-M33
++	writel(s_addr, sysc_base + SYS_CM33_CFG2);
++
++	// Set the non secure vector address of Cortex-M33
++	writel(ns_addr, sysc_base + SYS_CM33_CFG3);
++
++	// Supply clock to CM33_CLKIN
++	writel(0x00010001, cpg_base + CPG_CLKON_CM33);
++
++	// Poll CPG_CLKMON_CM33 to confirm that CM33_CLKIN clock is supplied
++	if(readl_poll_timeout(cpg_base + CPG_CLKMON_CM33, val, val & 0x01, 1000, 10000)) {
++		pr_info("subcore boot up fail, CLKMON_CM33 bit set timeout\n");
++		return -EBUSY;
++	}
++
++	// Stop the reset signals (released from the reset state)
++	writel(0x00070007, cpg_base + CPG_RST_CM33);
++
++	// Poll CPG_RSTMON_CM33 to confirm that all the reset signals are not applied
++	if(readl_poll_timeout(cpg_base + CPG_RSTMON_CM33, val, !val, 1000, 10000)) {
++		pr_info("subcore boot up fail, RSTMON_CM33 bit clear timeout\n");
++		return -EBUSY;
++	}
++
++	return 0;
++}
++EXPORT_SYMBOL(rz_subcore_boot);
++
+ static int __init rzg2l_cpg_add_clk_domain(struct rzg2l_cpg_priv *priv)
+ {
+ 	struct device *dev = priv->dev;
+@@ -1517,6 +1573,8 @@ static int __init rzg2l_cpg_probe(struct platform_device *pdev)
+ 	if (error)
+ 		return error;
+ 
++	cpg_base = priv->base;
++
+ 	return 0;
+ }
+ 
 diff --git a/drivers/tty/serial/Kconfig b/drivers/tty/serial/Kconfig
 index 28f22e58639c..1f9b2a5b542e 100644
 --- a/drivers/tty/serial/Kconfig

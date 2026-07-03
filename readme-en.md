@@ -11,9 +11,48 @@ any bug, please contact Renesas window person.
 - Two ports are supported: SCI0(P40_0 & P40_1, 1.8v) + SCIF2(P48_0 & P48_1, 3.3v, inside PMOD1). SCI0 signals are not exported originally.
 - SCI(SCIg) can support the baudrate up to 1Mbps，7/8/9 data-bit, 1/2 stop-bit, and odd/even/none parity data format.
 - SCIF can support the baudrate up to 10Mbps，7/8 data-bit, 1/2 stop-bit, and odd/even/none parity data format.
-- For supported baudrates and related error-rate, please refer to the 'enum vsci_br' definition in the file sh-vsci.h.
 - This solution will create the standard Linux UART devices(/dev/ttySCx). Linux UART app needs no modification, and no special library or API 
  required.
+- The CM33 firmware is loaded and brought up from Linux kernel driver automatically. Customer application does not need to care about this.
+- The supported baudrates and related error-rates list:
+	110, 0.0651485%
+	134, 0.0223124%
+	150, 0.0194995%
+	200, 0.0194995%
+	300, 0.0194995%
+	600, 0.0194995%
+	1200, 0.0194995%
+	1800, 0.0060041%
+	2400, 0.0194995%
+	4800, 0.0194995%
+	9600, 0.0194995%
+	19200, 0.0194995%
+	38400, 0.0194995%
+	57600, 0.00335015%
+	115200, 0.00335015%
+	230400, 0.00335015%
+	460800, 0.00335015%
+	500000, 0.0976562%
+	576000, 0.135807%
+	921600, 0.00335015%
+	1000000, 0.0976562%
+	1152000, 0.135807%
+	1500000, 0.0976583%
+	1562500, [ZERO] 0.000000%
+	2000000, 0.0976562%
+	2500000, 0.09766%
+	3000000, 0.0976583%
+	3125000, [ZERO] 0.000000%
+	3500000, 0.446429%
+	4000000, 0.0976562%
+	5000000, 0.09766%
+	6000000, 0.0976583%
+	6250000, [ZERO] 0.000000%
+	7000000, 0.446429%
+	8000000, 0.0976562%
+	9000000, 0.368922%
+	10000000 0.09766%
+- New baudrate can be added. The two lowest standard baudrates 50 and 75 are not supported due to hardware limitation.
 
 ## Note
 
@@ -33,65 +72,16 @@ any bug, please contact Renesas window person.
  (This wiki is for the application without subcore running, but this virtual UART solution does not use DDR RAM so it is also applicable)
 - Due to the lack of support of 9bit UART data format in Linux kernel and GLibC, if customer wants to support 9bit data on SCI port please pass
  CS5 in Linux UART application instead. Each 9bit data is stored in 2-byte half-word, and the upper 7bit is invalid.
-- Customer should load CM33 firmware and bring up CM33 core first inside u-boot. Then boot into Linux system.
-   
-## CM33 firmware loading and booting
+- If the old style of loading and booting CM33 firmware from u-boot is used, please remove the old style support first. That means u-boot needs no change.
 
-Assume the CM33 firmware is located in VFAT partition 1, the 1st partition of eMMC.
+## About the CM33 firmware location
 
-### Step 1: Copy Firmware Files to eMMC
+Please place the CM33 firmware binaries(vuart-xx.bin) somewhere in the root filesystem. It is "/usr/share/firmware/" by default.
+Customer can change this default location defined in the "mhu" device tree node. Please refer to the Linux patch for details.
 
-Copy the following firmware files to the VFAT partition 1 of your eMMC:
-- vuart-nc.bin
-- vuart-nv.bin
-- vuart-sc.bin
-- vuart-sv.bin
+## Verification by Linux kernel driver
 
-### Step 2: Manual Loading (Testing)
-
-Execute these commands in U-Boot to test the firmware loading:
-
-```
-mmc dev 0
-dcache off
-fatload mmc 0:1 $loadaddr vuart-nc.bin
-cp.b $loadaddr 0x00010000 0x4000
-fatload mmc 0:1 $loadaddr vuart-nv.bin
-cp.b $loadaddr 0x0001F800 0x800
-fatload mmc 0:1 $loadaddr vuart-sc.bin
-cp.b $loadaddr 0x0002D400 0x3C0
-fatload mmc 0:1 $loadaddr vuart-sv.bin
-cp.b $loadaddr 0x0002FF80 0x80
-dcache on
-cm33 start_debug 0x1002FF80 0x0001F800
-```
-### Automatic Loading on Every Boot
-
-Set up automatic loading on every boot:
-```
-# Load vuart_nc.bin (16KB)
-=> setenv load_nc 'fatload mmc 0:1 $loadaddr vuart-nc.bin; cp.b $loadaddr 0x00010000 0x4000'
-# Load vuart_nv.bin (2KB)
-=> setenv load_nv 'fatload mmc 0:1 $loadaddr vuart-nv.bin; cp.b $loadaddr 0x0001F800 0x800'
-# Load vuart_sc.bin (960 bytes)
-=> setenv load_sc 'fatload mmc 0:1 $loadaddr vuart-sc.bin; cp.b $loadaddr 0x0002D400 0x3C0'
-# Load vuart_sv.bin (128 bytes)
-=> setenv load_sv 'fatload mmc 0:1 $loadaddr vuart-sv.bin; cp.b $loadaddr 0x0002FF80 0x80'
-# Start CM33 core
-=> setenv start_cm33 'cm33 start_debug 0x1002FF80 0x0001F800'
-# Combined: Load all CM33 firmware files
-=> setenv load_cm33_firmware 'mmc dev 0; dcache off; run load_nc; run load_nv; run load_sc; run load_sv; dcache on; run start_cm33'
-# Save all parameters
-=> saveenv
-# Boot Linux from SD card
-=> setenv boot_linux 'mmc dev 1; fatload mmc 1:1 0x48080000 Image; fatload mmc 1:1 0x48000000 r9a07g044l2-smarc.dtb; booti 0x48080000 - 0x48000000'
-# Complete automated boot sequence
-=> setenv bootcmd 'run load_cm33_firmware; run boot_linux'
-=> saveenv
-```
-## Verification
-
-Make sure the following Linux kernel log can be found:
+Make sure the following Linux kernel loading log can be found:
 
 ```
 MHU resource IRQ 74 found, name = msg4-core0
@@ -193,10 +183,8 @@ $ od -c /tmp/received.dat | head
 - Build kernel and dtb to generate updated kernel and device tress Images.
   
 **rzg2l-vlp3.0.6-cip41-vuart.rs485.diff**:
-- Add RS-485 function support.
-- Based on patch 'rzg2l-vlp306-cip41-vuart.diff'.
-  
-Note: Customer should choose only one from these two patches.
+- This is an optional incremental patch for RS-485 application.
+- Patch this one after patching 'rzg2l-vlp306-cip41-vuart.diff' if RS-485 function is needed.
 
 ### trusted-firmware
 
@@ -204,12 +192,11 @@ Note: Customer should choose only one from these two patches.
 
 Note: This patch is used only for RZ/G2L MPU w/ secure feature and if the Secure-Boot is enabled.
 
-### u-boot
-
-- **rzg2l-vlp3.0.6-uboot.diff**: u-boot patch for cm33 command support
-- **cm33/cm33.c**: source file for cm33 command support(copy cm33.c to u-boot/cmd/)
-
 ## History
+### 2026.07.03
+- Add CM33 firmware loading and booting from Linux kernel support for VLP3.0.6.
+- Old style of loading and booting from u-boot is removed completely.
+
 ### 2026.01.09
 - Add 7-bit data frame support. Now 7/8/9-bit data frames are supported.
 - Subcore firmware updated accordingly.
